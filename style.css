@@ -1,0 +1,396 @@
+/* 抓坏猫 — 夜间蹲守配色 */
+
+:root {
+  --ink:      #0D1620;
+  --ink-2:    #16242F;
+  --steel:    #2D3F52;
+  --steel-2:  #3C536B;
+  --amber:    #F2B134;
+  --amber-dim:#8A6A24;
+  --paper:    #EDE6D6;
+  --paper-dim:#8C98A6;
+  --stamp:    #CE4B36;
+  --mint:     #5FB3A1;
+  --safe-top:    0px;
+  --safe-bottom: 0px;
+}
+
+@supports (padding: env(safe-area-inset-top)) {
+  :root {
+    --safe-top:    env(safe-area-inset-top);
+    --safe-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--ink);
+  color: var(--paper);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+               "Microsoft YaHei", "Source Han Sans SC", "Noto Sans CJK SC", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+[hidden] { display: none !important; }
+
+#app {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-width: 540px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: radial-gradient(120% 70% at 50% 8%, #1B2D3B 0%, #0D1620 62%, #080E15 100%);
+}
+
+/* ---------- 顶部档案条 ---------- */
+
+#hud {
+  flex: 0 0 auto;
+  padding: 10px 14px 12px;
+  padding-top: calc(10px + var(--safe-top));
+  background: linear-gradient(180deg, rgba(10,18,26,.96) 0%, rgba(10,18,26,.55) 100%);
+}
+
+.hud-file {
+  display: flex;
+  align-items: baseline;
+  font-size: 12px;
+  letter-spacing: .04em;
+  color: var(--paper-dim);
+  margin-bottom: 9px;
+}
+
+.file-tag   { opacity: .72; margin-right: 5px; }
+.file-no    { color: var(--paper); font-weight: 600; }
+.file-num   { color: var(--paper); font-weight: 700; font-variant-numeric: tabular-nums; }
+.file-score { color: var(--amber); }
+.file-sep   { width: 1px; height: 11px; background: var(--steel-2); margin: 0 11px; align-self: center; }
+.file-grow  { flex: 1 1 auto; }
+
+.warrant {
+  position: relative;
+  padding: 9px 12px 10px;
+  background: var(--ink-2);
+  border: 1px solid #243545;
+  border-left: 3px solid var(--stamp);
+  border-radius: 2px;
+}
+
+.warrant-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.warrant-word {
+  font-size: 13px;
+  letter-spacing: .3em;
+  color: var(--stamp);
+  font-weight: 700;
+  margin-right: 10px;
+}
+
+.warrant-target {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: var(--paper);
+  flex: 1 1 auto;
+}
+
+.warrant-dots { display: flex; align-items: center; }
+
+.warrant-dots i {
+  display: block;
+  width: 9px;
+  height: 9px;
+  margin-left: 6px;
+  border-radius: 50%;
+  border: 1.5px solid var(--steel-2);
+  background: transparent;
+  transition: background-color .25s ease, border-color .25s ease, transform .25s ease;
+}
+
+.warrant-dots i.on {
+  background: var(--stamp);
+  border-color: var(--stamp);
+  transform: scale(1.25);
+}
+
+.warrant-time { display: flex; align-items: center; }
+
+.time-bar {
+  flex: 1 1 auto;
+  height: 4px;
+  background: #22313F;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-right: 10px;
+}
+
+.time-bar i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--amber);
+  transform-origin: left center;
+}
+
+.time-bar.low i { background: var(--stamp); }
+
+.time-text {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--paper-dim);
+  min-width: 38px;
+  text-align: right;
+}
+
+.time-bar.low + .time-text { color: var(--stamp); }
+
+/* ---------- 画布 ---------- */
+
+#stage {
+  flex: 1 1 auto;
+  position: relative;
+  min-height: 0;
+  padding-bottom: var(--safe-bottom);
+}
+
+#game {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+/* ---------- 浮字提示 ---------- */
+
+.toast {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  transform: translate(-50%, 0) scale(.9);
+  padding: 7px 16px;
+  background: rgba(8,14,21,.9);
+  border: 1px solid #2B3D4E;
+  border-radius: 2px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--paper);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+  z-index: 6;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, -10px) scale(1);
+}
+
+.toast.warn { color: var(--stamp); border-color: #5A2B23; }
+.toast.good { color: var(--mint); border-color: #28554C; }
+
+/* ---------- 覆盖层 ---------- */
+
+.overlay {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 26px 24px;
+  padding-top: calc(26px + var(--safe-top));
+  padding-bottom: calc(26px + var(--safe-bottom));
+  background: rgba(7,12,18,.93);
+}
+
+.overlay.away {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .3s ease;
+}
+
+.screen {
+  width: 100%;
+  max-width: 340px;
+  text-align: center;
+}
+
+.brand-sub {
+  margin: 0 0 6px;
+  font-size: 12px;
+  letter-spacing: .34em;
+  color: var(--amber-dim);
+  padding-left: .34em;
+}
+
+.brand {
+  margin: 0 0 22px;
+  font-size: 46px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: .14em;
+  padding-left: .14em;
+  color: var(--paper);
+  text-shadow: 0 0 26px rgba(242,177,52,.22);
+}
+
+.brief {
+  margin: 0 0 26px;
+  padding: 16px 16px 14px;
+  background: var(--ink-2);
+  border: 1px solid #243545;
+  border-top: 3px solid var(--amber);
+  border-radius: 2px;
+  text-align: left;
+}
+
+.brief p {
+  margin: 0 0 7px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #B9C4CF;
+}
+
+.brief p:last-child { margin-bottom: 0; }
+.brief b { color: var(--amber); font-weight: 700; }
+
+.btn {
+  display: block;
+  width: 100%;
+  padding: 15px 20px;
+  border: 0;
+  border-radius: 2px;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  padding-left: calc(20px + .14em);
+  cursor: pointer;
+  transition: transform .12s ease, background-color .12s ease;
+}
+
+.btn-main {
+  background: var(--amber);
+  color: #1A1206;
+  box-shadow: 0 6px 0 #9C7220;
+}
+
+.btn-main:active {
+  transform: translateY(4px);
+  box-shadow: 0 2px 0 #9C7220;
+}
+
+.btn:focus-visible { outline: 3px solid var(--mint); outline-offset: 3px; }
+
+.best {
+  margin: 16px 0 0;
+  font-size: 12px;
+  letter-spacing: .08em;
+  color: #6A7986;
+}
+
+.best span { color: var(--paper-dim); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* 结算 */
+
+.verdict {
+  display: inline-block;
+  margin-bottom: 18px;
+  padding: 7px 18px 8px;
+  border: 3px solid var(--stamp);
+  border-radius: 3px;
+  color: var(--stamp);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: .2em;
+  padding-right: calc(18px + .2em);
+  transform: rotate(-7deg);
+  opacity: .92;
+}
+
+.verdict.miss { border-color: var(--steel-2); color: var(--steel-2); }
+
+.end-title {
+  margin: 0 0 8px;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  padding-left: .1em;
+}
+
+.end-note {
+  margin: 0 0 20px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #93A1AE;
+}
+
+.tally {
+  margin: 0 0 24px;
+  padding: 4px 14px 6px;
+  background: var(--ink-2);
+  border: 1px solid #243545;
+  border-radius: 2px;
+  text-align: left;
+}
+
+.tally div {
+  display: flex;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px dashed #27384A;
+}
+
+.tally div:last-child { border-bottom: 0; }
+
+.tally dt {
+  flex: 1 1 auto;
+  font-size: 13px;
+  color: #8694A1;
+}
+
+.tally dd {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--paper);
+}
+
+.tally div.sum dt { color: var(--paper); font-weight: 700; }
+.tally div.sum dd { color: var(--amber); font-size: 19px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: .01ms !important; }
+}
+
+@media (max-height: 620px) {
+  .brand { font-size: 36px; margin-bottom: 14px; }
+  .brief { margin-bottom: 18px; padding: 12px 14px; }
+  .brief p { font-size: 13px; line-height: 1.6; }
+}
