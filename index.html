@@ -23,6 +23,7 @@
       <span class="file-grow"></span>
       <span class="file-tag">分数</span>
       <span class="file-num file-score" id="scoreNum">0</span>
+      <button type="button" class="hud-help" id="btnHelp" aria-label="玩法说明">?</button>
     </div>
 
     <div class="warrant">
@@ -54,9 +55,11 @@
         <p>点它，它就进押解笼。</p>
         <p>笼里凑齐三只同款同级，会合成更高一级。</p>
         <p>合出<b>猫大王</b>，当场盖章逮捕。</p>
+        <p>戴<b>蝴蝶结</b>的是好猫，别点它。</p>
       </div>
       <button type="button" class="btn btn-main" id="btnStart">开始抓捕</button>
-      <p class="best">最高分 <span id="bestStart">0</span></p>
+      <button type="button" class="btn btn-ghost" id="btnRules">玩法说明</button>
+      <p class="best">最高分 <span id="bestStart">0</span>　累计警务分 <span id="careerStart">0</span></p>
     </div>
 
     <div class="screen" id="screenEnd" hidden>
@@ -65,7 +68,59 @@
       <p class="end-note" id="endNote">猫大王已收押。</p>
       <dl class="tally" id="tally"></dl>
       <button type="button" class="btn btn-main" id="btnAgain">再抓一次</button>
+      <button type="button" class="btn btn-ghost" id="btnRules2">玩法说明</button>
       <p class="best">最高分 <span id="bestEnd">0</span></p>
+    </div>
+
+    <div class="screen screen-help" id="screenHelp" hidden>
+      <p class="brand-sub">值班须知</p>
+      <h2 class="help-title">玩法说明</h2>
+      <div class="help-body" id="helpBody">
+
+        <section class="rule">
+          <h3><i>1</i>认猫</h3>
+          <p>戴<b>眼罩、坏笑</b>的是坏猫，要抓。</p>
+          <p>戴<b class="mint">蝴蝶结、微笑</b>的是好猫，<b>千万别点</b>：误点扣 15 分，还会愣 0.4 秒，白白浪费时间。</p>
+        </section>
+
+        <section class="rule">
+          <h3><i>2</i>点击抓捕</h3>
+          <p>点坏猫，它飞进底下的押解笼，住进<b>最左边的空格</b>。笼子一共 7 格。</p>
+          <p>可能会<b>扑空</b>。猫头上的 <b>!</b> 越多越警觉，越容易扑空。同一只猫连续扑空 2 次，第 3 次<b class="mint">必中</b>，这时 ! 会变成青色。</p>
+        </section>
+
+        <section class="rule">
+          <h3><i>3</i>三合一</h3>
+          <p>笼里<b>同花色、同等级</b>凑齐 3 只，自动合成高一级的 1 只。位置不限，隔着别的猫也算。</p>
+          <p class="eg"><span>小奶猫 ×3</span><em>→</em><span>暴走猫</span></p>
+          <p class="eg"><span>暴走猫 ×3</span><em>→</em><span class="gold">猫大王</span></p>
+          <p class="no">橘 + 橘 + 灰：花色不同，不合。<br>小奶猫 + 小奶猫 + 暴走猫：等级不同，不合。</p>
+        </section>
+
+        <section class="rule">
+          <h3><i>4</i>连锁</h3>
+          <p>合成之后如果笼里又凑齐 3 只，会立刻再合一次，这叫<b>连锁</b>。合成得分 = 60 × 新等级 × 连锁数，连得越长分越高，音调也越高。</p>
+        </section>
+
+        <section class="rule">
+          <h3><i>5</i>逮捕猫大王</h3>
+          <p>3 只暴走猫合出<b>猫大王</b>，当场盖章逮捕，不占格子，通缉令上的红点亮一颗。</p>
+        </section>
+
+        <section class="rule">
+          <h3><i>6</i>笼子满了</h3>
+          <p>笼子满了<b>不会判输</b>，只是再点传送带上的猫会被弹回去。</p>
+          <p>这时点笼里的一只猫选中它，<b>再点一次</b>就放走，腾出格子。放走有 30% 的概率，它会拉着<b>相邻</b>的一只同伙一起跑，所以最好挑边上的、旁边没猫的放。</p>
+        </section>
+
+        <section class="rule">
+          <h3><i>7</i>输赢与得分</h3>
+          <p>限时内逮够目标数量的猫大王算赢，时间耗尽算输；笼满不算输。</p>
+          <p>抓一只 +5，逮捕猫大王 +500，赢了再按剩余秒数 ×10 加分。赢了累计警务分增加，输了扣 100，最低扣到 0。</p>
+        </section>
+
+      </div>
+      <button type="button" class="btn btn-main" id="btnHelpDone">明白了</button>
     </div>
 
   </section>

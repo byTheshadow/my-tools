@@ -1,4 +1,4 @@
-/* 抓坏猫 v0.1
+/* 抓坏猫 v0.2
  * 纯本地单页小游戏，无外部请求、无内联脚本。
  * 语法基线：ES2017 / Chrome 61
  */
@@ -19,7 +19,16 @@
     scoreMerge: 60,
     scoreCapture: 500,
     scoreTimeBonus: 10,
-    storeKey: 'zhuahuaimao.best.v1'
+    penaltyGood: 15,                 // 误点好猫扣分
+    lockGood: 0.4,                   // 误点好猫后的"愣住"时间（秒）
+    missRates: [0.08, 0.22, 0.38],   // 警觉度 1/2/3 对应的扑空率
+    alertWeights: [0.5, 0.35, 0.15], // 警觉度出现权重
+    pityAfter: 2,                    // 连续扑空 2 次，第 3 次必中
+    releaseHelpRate: 0.3,            // 放走时连带跑一只同伙的概率
+    losePenalty: 100,                // 失败扣累计警务分
+    storeKey: 'zhuahuaimao.best.v1',
+    careerKey: 'zhuahuaimao.career.v1',
+    hintKey: 'zhuahuaimao.hints.v1'
   };
 
   var LEVELS = [
@@ -30,13 +39,21 @@
       species: 2,
       spawnEvery: 1.05,
       spawnJitter: 0.35,
-      crossTime: 5.4
+      crossTime: 5.4,
+      good: true,        // v0.2 试玩关：好猫与扑空全开，v0.4 起按关卡表分级开启
+      goodRate: 0.2,
+      miss: true
     }
   ];
 
   var SPECIES = [
     { name: '橘', coat: '#E8903A', shade: '#C26C1C', ear: '#F2B47A', mark: 'stripe' },
     { name: '灰', coat: '#95A2B2', shade: '#6C7A8C', ear: '#B9C4D1', mark: 'spot' }
+  ];
+
+  var GOODS = [
+    { coat: '#F3E9D2', shade: '#D8C7A4', ear: '#F2B4B8' },
+    { coat: '#CFE6DD', shade: '#9CC4B6', ear: '#F2B4B8' }
   ];
 
   var COLOR = {
@@ -76,6 +93,13 @@
   var elEndTitle = $('endTitle');
   var elEndNote = $('endNote');
   var elTally = $('tally');
+  var elScreenHelp = $('screenHelp');
+  var elHelpBody = $('helpBody');
+  var elBtnHelp = $('btnHelp');
+  var elBtnRules = $('btnRules');
+  var elBtnRules2 = $('btnRules2');
+  var elBtnHelpDone = $('btnHelpDone');
+  var elCareerStart = $('careerStart');
 
   var canvas = $('game');
   var ctx = canvas.getContext('2d');
@@ -130,6 +154,41 @@
 
   function saveBest(v) {
     try { window.localStorage.setItem(CFG.storeKey, String(v)); } catch (e) {}
+  }
+
+  function loadCareer() {
+    try {
+      var v = window.localStorage.getItem(CFG.careerKey);
+      return v ? parseInt(v, 10) || 0 : 0;
+    } catch (e) { return 0; }
+  }
+
+  function saveCareer(v) {
+    try { window.localStorage.setItem(CFG.careerKey, String(v)); } catch (e) {}
+  }
+
+  function loadHints() {
+    try {
+      var v = window.localStorage.getItem(CFG.hintKey);
+      var o = v ? JSON.parse(v) : null;
+      return o && typeof o === 'object' ? o : {};
+    } catch (e) { return {}; }
+  }
+
+  function saveHints() {
+    try { window.localStorage.setItem(CFG.hintKey, JSON.stringify(hints)); } catch (e) {}
+  }
+
+  // 一次性提示的已读记录；网址加 ?reset 可清空，方便反复测试
+  var hints = loadHints();
+  if (/[?&]reset(=|&|$)/.test(window.location.search)) { hints = {}; saveHints(); }
+
+  function hintOnce(key, text, kind) {
+    if (hints[key]) return false;
+    hints[key] = 1;
+    saveHints();
+    toast(text, kind, 2.8);
+    return true;
   }
 
   /* ================= 音效（WebAudio 现场合成） ================= */
@@ -191,6 +250,8 @@
       grab: function () { tone(520, 0.08, 'triangle', 0.26, 760); },
       land: function () { tone(300, 0.07, 'sine', 0.2); },
       deny: function () { tone(170, 0.14, 'square', 0.16, 110); },
+      miss: function () { tone(720, 0.11, 'sine', 0.15, 360); noise(0.05, 0.08); },
+      release: function () { tone(480, 0.2, 'triangle', 0.2, 900); },
       merge: function (lv, chain) {
         var base = 440 * Math.pow(1.26, lv - 1) * Math.pow(1.12, Math.min(chain, 5) - 1);
         tone(base, 0.16, 'triangle', 0.3, base * 1.5);
@@ -283,8 +344,19 @@
     shake: 0,
     stamp: null,
     catId: 1,
-    toldEscape: false
+    toldEscape: false,
+    clock: 0,
+    lock: 0,                 // 误点好猫后的点击冷却
+    sel: -1,                 // 笼满时选中的待放走格子
+    runners: [],             // 被放走、正在逃跑的猫
+    goodHit: 0,
+    missTotal: 0,
+    released: 0
   };
+
+  function addScore(n) {
+    G.score = Math.max(0, G.score + n);
+  }
 
   function resetSlots() {
     G.slots = [];
@@ -302,6 +374,9 @@
     G.spawnTimer = 0;
     G.nextSpawn = 0.5;
     G.stamp = null;
+    G.runners = [];
+    G.sel = -1;
+    G.lock = 0;
   }
 
   function startLevel(def) {
@@ -324,6 +399,12 @@
     G.shake = 0;
     G.stamp = null;
     G.toldEscape = false;
+    G.runners = [];
+    G.sel = -1;
+    G.lock = 0;
+    G.goodHit = 0;
+    G.missTotal = 0;
+    G.released = 0;
 
     elLevelNo.textContent = '第 ' + def.no + ' 号';
     elTarget.textContent = CFG.levelNames[3] + ' ×' + def.target;
@@ -371,10 +452,10 @@
 
   var toastTimer = 0;
 
-  function toast(text, kind) {
+  function toast(text, kind, dur) {
     elToast.textContent = text;
     elToast.className = 'toast show' + (kind ? ' ' + kind : '');
-    toastTimer = 1.1;
+    toastTimer = dur || 1.1;
   }
 
   function tickToast(dt) {
@@ -541,16 +622,151 @@
     c.restore();
   }
 
+  function drawGoodCat(c, x, y, size, v, phase) {
+    var g = GOODS[v % GOODS.length];
+    var s = size / 100;
+
+    c.save();
+    c.translate(x, y);
+    c.scale(s, s);
+    if (phase) c.rotate(Math.sin(phase) * 0.06);
+
+    c.fillStyle = 'rgba(0,0,0,.28)';
+    c.beginPath();
+    c.ellipse(0, 46, 34, 7, 0, 0, Math.PI * 2);
+    c.fill();
+
+    // 耳朵
+    c.fillStyle = g.shade;
+    c.beginPath();
+    c.moveTo(-38, -14); c.lineTo(-31, -52); c.lineTo(-5, -26); c.closePath(); c.fill();
+    c.beginPath();
+    c.moveTo(38, -14); c.lineTo(31, -52); c.lineTo(5, -26); c.closePath(); c.fill();
+    c.fillStyle = g.ear;
+    c.beginPath();
+    c.moveTo(-32, -18); c.lineTo(-28, -42); c.lineTo(-13, -26); c.closePath(); c.fill();
+    c.beginPath();
+    c.moveTo(32, -18); c.lineTo(28, -42); c.lineTo(13, -26); c.closePath(); c.fill();
+
+    // 头
+    c.fillStyle = g.coat;
+    c.beginPath();
+    c.ellipse(0, 2, 42, 39, 0, 0, Math.PI * 2);
+    c.fill();
+
+    // 腮红
+    c.fillStyle = 'rgba(240,140,155,.5)';
+    c.beginPath(); c.ellipse(-27, 14, 8, 5, 0, 0, 6.3); c.fill();
+    c.beginPath(); c.ellipse(27, 14, 8, 5, 0, 0, 6.3); c.fill();
+
+    // 眼睛：无眼罩，圆溜溜
+    var blink = Math.sin((phase || 0) * 0.7) > 0.985 ? 0.12 : 1;
+    c.fillStyle = '#1B2733';
+    c.beginPath(); c.ellipse(-17, -2, 7, 9 * blink, 0, 0, 6.3); c.fill();
+    c.beginPath(); c.ellipse(17, -2, 7, 9 * blink, 0, 0, 6.3); c.fill();
+    if (blink > 0.5) {
+      c.fillStyle = '#FFFFFF';
+      c.beginPath(); c.arc(-19.5, -5.5, 2.6, 0, 6.3); c.fill();
+      c.beginPath(); c.arc(14.5, -5.5, 2.6, 0, 6.3); c.fill();
+      c.beginPath(); c.arc(-15, 1, 1.2, 0, 6.3); c.fill();
+      c.beginPath(); c.arc(19, 1, 1.2, 0, 6.3); c.fill();
+    }
+
+    // 鼻子与微笑
+    c.fillStyle = '#E58A94';
+    c.beginPath();
+    c.moveTo(-5, 15); c.lineTo(5, 15); c.lineTo(0, 21); c.closePath(); c.fill();
+    c.strokeStyle = '#3B2A2A';
+    c.lineWidth = 2.6;
+    c.lineCap = 'round';
+    c.beginPath(); c.moveTo(0, 21); c.quadraticCurveTo(-6, 31, -15, 23); c.stroke();
+    c.beginPath(); c.moveTo(0, 21); c.quadraticCurveTo(6, 31, 15, 23); c.stroke();
+
+    // 胡须
+    c.strokeStyle = 'rgba(60,50,50,.4)';
+    c.lineWidth = 1.8;
+    c.beginPath(); c.moveTo(-28, 16); c.lineTo(-46, 12); c.stroke();
+    c.beginPath(); c.moveTo(-28, 21); c.lineTo(-45, 23); c.stroke();
+    c.beginPath(); c.moveTo(28, 16); c.lineTo(46, 12); c.stroke();
+    c.beginPath(); c.moveTo(28, 21); c.lineTo(45, 23); c.stroke();
+
+    // 蝴蝶结（好猫标志）
+    c.fillStyle = COLOR.mint;
+    c.strokeStyle = '#3F8A7A';
+    c.lineWidth = 2;
+    c.lineJoin = 'round';
+    c.beginPath();
+    c.moveTo(0, -38); c.lineTo(-19, -50); c.lineTo(-19, -26); c.closePath();
+    c.fill(); c.stroke();
+    c.beginPath();
+    c.moveTo(0, -38); c.lineTo(19, -50); c.lineTo(19, -26); c.closePath();
+    c.fill(); c.stroke();
+    c.fillStyle = '#3F8A7A';
+    c.beginPath(); c.arc(0, -38, 5, 0, 6.3); c.fill();
+
+    c.restore();
+  }
+
+  // 警觉度标记：头顶 1-3 个感叹号；连扑空 2 次后变青色并加光圈（下次必中）
+  function drawAlertMarks(c, x, y, size, n, pity, t) {
+    var col = pity ? COLOR.mint : COLOR.amber;
+    var gap = 9;
+    var x0 = x - (n - 1) * gap / 2;
+    var top = y - size * 0.78;
+
+    c.save();
+    if (pity) {
+      c.globalAlpha = 0.5 + 0.3 * Math.sin(t * 6);
+      c.strokeStyle = COLOR.mint;
+      c.lineWidth = 2;
+      c.beginPath();
+      c.arc(x, y, size * 0.58, 0, 6.3);
+      c.stroke();
+      c.globalAlpha = 1;
+    }
+    c.fillStyle = col;
+    c.strokeStyle = 'rgba(8,14,20,.85)';
+    c.lineWidth = 2;
+    for (var i = 0; i < n; i++) {
+      var mx = x0 + i * gap;
+      roundRect(c, mx - 1.9, top - 9, 3.8, 9, 1.6);
+      c.stroke();
+      c.fill();
+      c.beginPath();
+      c.arc(mx, top + 4, 2.1, 0, 6.3);
+      c.stroke();
+      c.fill();
+    }
+    c.restore();
+  }
+
   /* ================= 生成与更新 ================= */
 
   function spawnCat() {
     var def = G.level;
     var size = L.catSize;
     var speed = (L.w + size * 2) / def.crossTime;
+    var good = !!def.good && Math.random() < def.goodRate;
+    var alert = 0;
+    if (!good && def.miss) {
+      var roll = Math.random();
+      var acc = 0;
+      for (var a = 0; a < CFG.alertWeights.length; a++) {
+        acc += CFG.alertWeights[a];
+        if (roll < acc) { alert = a; break; }
+        alert = a;
+      }
+    }
     G.cats.push({
       id: G.catId++,
-      sp: randInt(def.species),
+      sp: good ? randInt(GOODS.length) : randInt(def.species),
       lv: 1,
+      good: good,
+      alert: alert,          // 0-2，对应头顶 1-3 个感叹号
+      miss: 0,               // 已连续扑空次数
+      dodge: 0,
+      hit: false,            // 好猫是否已被误点（只扣一次）
+      seen: false,
       x: -size,
       speed: speed,
       bob: rand(0, 6.28),
@@ -560,7 +776,8 @@
   }
 
   function catY(cat, t) {
-    return L.beltLine - L.catSize * 0.14 + Math.sin(t * 2.4 + cat.bob) * 3;
+    var hop = cat.dodge > 0 ? Math.sin((1 - cat.dodge / 0.3) * Math.PI) * 18 : 0;
+    return L.beltLine - L.catSize * 0.14 + Math.sin(t * 2.4 + cat.bob) * 3 - hop;
   }
 
   function firstEmptySlot() {
@@ -575,29 +792,43 @@
   }
 
   function tryCatch(px, py) {
+    if (G.lock > 0) return true;
+
     var best = -1, bestD = 1e9;
     var r = L.catSize * 0.72;
     for (var i = 0; i < G.cats.length; i++) {
-      var cat = G.cats[i];
-      var cy = catY(cat, G.clock);
-      var dx = px - cat.x, dy = py - cy;
+      var c0 = G.cats[i];
+      var y0 = catY(c0, G.clock);
+      var dx = px - c0.x, dy = py - y0;
       var d = Math.sqrt(dx * dx + dy * dy);
       if (d < r && d < bestD) { bestD = d; best = i; }
     }
     if (best < 0) return false;
 
     var cat = G.cats[best];
-    var slot = firstEmptySlot();
+    var cy = catY(cat, G.clock);
 
-    if (slot < 0) {
-      cat.bounce = 0.45;
-      AudioFX.deny();
-      toast('押解笼满了', 'warn');
-      buzz(30);
+    if (cat.good) {
+      onGoodHit(cat, cy);
       return true;
     }
 
-    var cy = catY(cat, G.clock);
+    var slot = firstEmptySlot();
+    if (slot < 0) {
+      cat.bounce = 0.45;
+      AudioFX.deny();
+      buzz(30);
+      if (!hintOnce('full', '笼子满了：点笼里一只，再点一次放走', 'warn')) {
+        toast('笼满了 · 点笼里一只放走', 'warn');
+      }
+      return true;
+    }
+
+    if (G.level.miss && cat.miss < CFG.pityAfter && Math.random() < CFG.missRates[cat.alert]) {
+      onMiss(cat, cy);
+      return true;
+    }
+
     G.cats.splice(best, 1);
 
     G.slots[slot] = { sp: cat.sp, lv: cat.lv, arriving: true, pop: 0, capture: 0 };
@@ -613,6 +844,118 @@
     AudioFX.grab();
     buzz(10);
     burst(cat.x, cy, 6, ['#F2B134', '#EDE6D6'], 110);
+    return true;
+  }
+
+  function onGoodHit(cat, cy) {
+    cat.bounce = 0.45;
+    AudioFX.deny();
+    buzz(40);
+    if (cat.hit) return;
+    cat.hit = true;
+    addScore(-CFG.penaltyGood);
+    G.goodHit++;
+    G.lock = CFG.lockGood;
+    floatText(cat.x, Math.max(14, cy - L.catSize * 0.9), '好猫！−' + CFG.penaltyGood, COLOR.stamp, 16);
+    burst(cat.x, cy, 8, [COLOR.mint, COLOR.paper], 120);
+    hintOnce('goodHit', '点到好猫了：扣分，还要愣一下', 'warn');
+  }
+
+  function onMiss(cat, cy) {
+    cat.miss++;
+    cat.dodge = 0.3;
+    G.missTotal++;
+    AudioFX.miss();
+    buzz(12);
+    burst(cat.x, cy + L.catSize * 0.3, 5, [COLOR.dim, COLOR.paper], 90);
+    floatText(cat.x, Math.max(14, cy - L.catSize * 0.9), '扑空！', COLOR.paper, 16);
+    if (cat.miss >= CFG.pityAfter) {
+      floatText(cat.x, Math.max(30, cy - L.catSize * 1.15), '下次必中', COLOR.mint, 13);
+    }
+    hintOnce('miss', '扑空了：猫头上的 ! 越多越警觉，越容易扑空', null);
+  }
+
+  function slotMovable(j) {
+    var sl = G.slots[j];
+    return !!sl && !sl.arriving && sl.capture <= 0;
+  }
+
+  function cellAt(x, y) {
+    if (y < L.cageTop || y > L.cageBottom) return -1;
+    var rel = x - L.cageLeft;
+    if (rel < -6 || rel > L.cageW + 6) return -1;
+    var i = Math.floor(rel / (L.cellW + L.cellGap));
+    return clamp(i, 0, CFG.cageSlots - 1);
+  }
+
+  // 优先带走相邻的同伙；相邻没有可带的就随机一只
+  function pickAccomplice(i) {
+    var adj = [];
+    if (i > 0 && slotMovable(i - 1)) adj.push(i - 1);
+    if (i < G.slots.length - 1 && slotMovable(i + 1)) adj.push(i + 1);
+    if (adj.length) return adj[randInt(adj.length)];
+    var any = [];
+    for (var j = 0; j < G.slots.length; j++) {
+      if (j !== i && slotMovable(j)) any.push(j);
+    }
+    return any.length ? any[randInt(any.length)] : -1;
+  }
+
+  function launchRunner(sl, p, dir, delay) {
+    G.runners.push({
+      sp: sl.sp, lv: sl.lv,
+      x: p.x, y: p.y, y0: p.y,
+      vx: dir * rand(230, 300),
+      t: -(delay || 0)
+    });
+    burst(p.x, p.y, 7, [SPECIES[sl.sp].coat, COLOR.paper], 130);
+  }
+
+  function releaseSlot(i) {
+    var sl = G.slots[i];
+    var p = slotCenter(i);
+    var dir = p.x < L.w / 2 ? -1 : 1;
+    G.slots[i] = null;
+    G.sel = -1;
+    G.released++;
+    launchRunner(sl, p, dir, 0);
+
+    var helped = -1;
+    if (Math.random() < CFG.releaseHelpRate) helped = pickAccomplice(i);
+
+    if (helped >= 0) {
+      var sl2 = G.slots[helped];
+      var p2 = slotCenter(helped);
+      G.slots[helped] = null;
+      launchRunner(sl2, p2, dir, 0.08);
+      floatText(p2.x, p2.y - L.cellH * 0.6, '同伙也跑了！', COLOR.stamp, 15);
+      toast('它拉着同伙一起跑了', 'warn');
+      AudioFX.escape();
+      buzz(30);
+    } else {
+      toast('放走了一只', 'good');
+      AudioFX.release();
+      buzz(12);
+    }
+  }
+
+  // 笼满时点笼里的猫：第一次选中，第二次放走。返回 true 表示这次点击已被笼子吃掉
+  function handleCageTap(px, py) {
+    if (G.state !== 'playing') return false;
+    var idx = cellAt(px, py);
+    if (idx < 0) {
+      G.sel = -1;
+      return false;
+    }
+    if (firstEmptySlot() >= 0) return true;
+    if (!slotMovable(idx)) return true;
+    if (G.sel === idx) {
+      releaseSlot(idx);
+    } else {
+      G.sel = idx;
+      AudioFX.land();
+      buzz(8);
+    }
     return true;
   }
 
@@ -691,6 +1034,7 @@
   function update(dt) {
     G.clock = (G.clock || 0) + dt;
     G.beltOffset = (G.beltOffset + dt * (L.w / G.level.crossTime)) % 44;
+    if (G.lock > 0) G.lock -= dt;
 
     // 生成
     if (G.state === 'idle' || G.state === 'playing') {
@@ -712,9 +1056,14 @@
       } else {
         cat.scale = 1;
       }
+      if (cat.dodge > 0) cat.dodge -= dt;
+      if (cat.good && !cat.seen && G.state === 'playing' && cat.x > L.catSize * 0.6) {
+        cat.seen = true;
+        hintOnce('good', '戴蝴蝶结的是好猫，别点它', 'good');
+      }
       if (cat.x > L.w + L.catSize) {
         G.cats.splice(i, 1);
-        if (G.state === 'playing') {
+        if (G.state === 'playing' && !cat.good) {
           G.escaped++;
           AudioFX.escape();
           if (!G.toldEscape) {
@@ -764,6 +1113,18 @@
         if (sl.capture <= 0) doCapture(k);
       }
     }
+
+    // 被放走的猫
+    for (var rn = G.runners.length - 1; rn >= 0; rn--) {
+      var rnr = G.runners[rn];
+      rnr.t += dt;
+      if (rnr.t > 0) rnr.x += rnr.vx * dt * (1 + rnr.t * 1.2);
+      rnr.y = rnr.y0 - Math.abs(Math.sin(Math.max(0, rnr.t) * 9)) * 26;
+      if (rnr.x < -L.cageCat * 1.5 || rnr.x > L.w + L.cageCat * 1.5) G.runners.splice(rn, 1);
+    }
+
+    // 选中的格子失效（笼子不再满、或那只猫已不可动）
+    if (G.sel >= 0 && (firstEmptySlot() >= 0 || !slotMovable(G.sel))) G.sel = -1;
 
     // 粒子
     for (var q = G.parts.length - 1; q >= 0; q--) {
@@ -821,7 +1182,16 @@
     // 传送带上的猫
     for (var i = 0; i < G.cats.length; i++) {
       var cat = G.cats[i];
-      drawCat(ctx, cat.x, catY(cat, G.clock), L.catSize * cat.scale, cat.sp, cat.lv, G.clock * 1.6 + cat.bob);
+      var cyy = catY(cat, G.clock);
+      var csz = L.catSize * cat.scale;
+      if (cat.good) {
+        drawGoodCat(ctx, cat.x, cyy, csz, cat.sp, G.clock * 1.6 + cat.bob);
+      } else {
+        drawCat(ctx, cat.x, cyy, csz, cat.sp, cat.lv, G.clock * 1.6 + cat.bob);
+        if (G.level.miss) {
+          drawAlertMarks(ctx, cat.x, cyy, L.catSize, cat.alert + 1, cat.miss >= CFG.pityAfter, G.clock);
+        }
+      }
     }
 
     drawChainGuide();
@@ -835,6 +1205,11 @@
       var y = fl.y0 + (fl.y1 - fl.y0) * t - Math.sin(t * Math.PI) * 54;
       var sz = L.catSize + (L.cageCat - L.catSize) * t;
       drawCat(ctx, x, y, sz, fl.sp, fl.lv, 0);
+    }
+
+    for (var rn = 0; rn < G.runners.length; rn++) {
+      var rr2 = G.runners[rn];
+      drawCat(ctx, rr2.x, rr2.y + L.cageCat * 0.06, L.cageCat, rr2.sp, rr2.lv, rr2.t * 14);
     }
 
     drawParticles();
@@ -937,6 +1312,12 @@
       ctx.fillStyle = k === 2 ? COLOR.amber : COLOR.dim;
       ctx.fillText(CFG.levelNames[k + 1], xs[k], y + mini * 0.78);
     }
+
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = COLOR.dim;
+    ctx.font = '600 10px -apple-system, \"PingFang SC\", sans-serif';
+    ctx.fillText('同花色 · 同等级 · 凑 3 合成', cx, y + mini * 1.34);
+    ctx.fillText('连着合叫连锁，倍率一路涨', cx, y + mini * 1.34 + 14);
     ctx.restore();
   }
 
@@ -951,6 +1332,21 @@
     var n = cageCount();
     ctx.fillStyle = n >= CFG.cageSlots ? COLOR.stamp : COLOR.dim;
     ctx.fillText(n + ' / ' + CFG.cageSlots, L.cageLeft + L.cageW - 1, L.cageTop + 11);
+
+    var full = G.state === 'playing' && firstEmptySlot() < 0;
+    var pulse = Math.sin(G.clock * 5) * 0.5 + 0.5;
+    if (full) {
+      ctx.textAlign = 'center';
+      if (G.sel >= 0) {
+        ctx.fillStyle = COLOR.mint;
+        ctx.fillText('再点一次放走（可能连带跑一只）', L.cageLeft + L.cageW / 2, L.cageTop + 11);
+      } else {
+        ctx.globalAlpha = 0.6 + 0.4 * pulse;
+        ctx.fillStyle = COLOR.amber;
+        ctx.fillText('满了 · 点笼里一只放走', L.cageLeft + L.cageW / 2, L.cageTop + 11);
+        ctx.globalAlpha = 1;
+      }
+    }
 
     for (var i = 0; i < CFG.cageSlots; i++) {
       var x = L.cageLeft + i * (L.cellW + L.cellGap);
@@ -994,6 +1390,27 @@
           ctx.lineTo(bx, y + L.cellH - 3);
           ctx.stroke();
         }
+        ctx.restore();
+      }
+
+      // 笼满：可放走的格子描边提示；选中的格子青色高亮
+      if (full && slotMovable(i)) {
+        ctx.save();
+        if (G.sel === i) {
+          ctx.globalAlpha = 0.22;
+          ctx.fillStyle = COLOR.mint;
+          roundRect(ctx, x, y, L.cellW, L.cellH, 3);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+          ctx.strokeStyle = COLOR.mint;
+          ctx.lineWidth = 2.5;
+        } else {
+          ctx.globalAlpha = 0.25 + 0.4 * pulse;
+          ctx.strokeStyle = COLOR.amber;
+          ctx.lineWidth = 1.5;
+        }
+        roundRect(ctx, x + 1, y + 1, L.cellW - 2, L.cellH - 2, 3);
+        ctx.stroke();
         ctx.restore();
       }
     }
@@ -1099,14 +1516,23 @@
       : '猫大王还逍遥法外，再蹲守一轮。';
 
     while (elTally.firstChild) elTally.removeChild(elTally.firstChild);
+    var career = loadCareer();
+    var nextCareer = Math.max(0, career + (win ? total : -CFG.losePenalty));
+    saveCareer(nextCareer);
+    var diff = nextCareer - career;
+    var diffText = diff >= 0 ? '+' + diff : '−' + (-diff);
+
     addTally('抓捕得分', String(G.score));
     addTally('逮捕猫大王', G.captured + ' / ' + G.level.target);
     addTally('漏网坏猫', String(G.escaped));
+    if (G.level.good) addTally('误点好猫', G.goodHit + ' 只');
     if (win) addTally('剩余时间奖励', '+' + timeBonus);
     addTally('总分', String(total), true);
+    addTally('累计警务分', nextCareer + '（' + diffText + '）');
 
     elBestEnd.textContent = String(best);
     elBestStart.textContent = String(best);
+    elCareerStart.textContent = String(nextCareer);
 
     if (win) AudioFX.win(); else AudioFX.lose();
     buzz(win ? [20, 60, 20, 60] : 120);
@@ -1143,6 +1569,7 @@
     if (G.state !== 'playing') return;
     ev.preventDefault();
     var p = canvasPoint(ev);
+    if (handleCageTap(p.x, p.y)) return;
     tryCatch(p.x, p.y);
   }
 
@@ -1161,6 +1588,7 @@
   elBtnStart.addEventListener('click', function () {
     AudioFX.init();
     AudioFX.resume();
+    if (!hints.help) { openHelp('first'); return; }
     beginRound();
   }, false);
 
@@ -1177,6 +1605,43 @@
     }, 320);
     startLevel(LEVELS[0]);
   }
+
+  /* ---------- 玩法说明（首次出勤必读，之后随时可开） ---------- */
+
+  var helpFrom = 'start';
+
+  function openHelp(from) {
+    if (from === 'play') {
+      if (G.state !== 'playing') return;
+      G.state = 'paused';
+      elToast.className = 'toast';
+    }
+    helpFrom = from;
+    elScreenStart.hidden = true;
+    elScreenEnd.hidden = true;
+    elScreenHelp.hidden = false;
+    elHelpBody.scrollTop = 0;
+    elBtnHelpDone.textContent = from === 'first' ? '明白了，出勤' : (from === 'play' ? '继续抓捕' : '返回');
+    elOverlay.className = 'overlay';
+  }
+
+  function closeHelp() {
+    if (!hints.help) { hints.help = 1; saveHints(); }
+    elScreenHelp.hidden = true;
+    if (helpFrom === 'first') { beginRound(); return; }
+    if (helpFrom === 'play') {
+      G.state = 'playing';
+      elOverlay.className = 'overlay away';
+      return;
+    }
+    if (helpFrom === 'end') elScreenEnd.hidden = false;
+    else elScreenStart.hidden = false;
+  }
+
+  elBtnHelp.addEventListener('click', function () { AudioFX.init(); AudioFX.resume(); openHelp('play'); }, false);
+  elBtnRules.addEventListener('click', function () { openHelp('start'); }, false);
+  elBtnRules2.addEventListener('click', function () { openHelp('end'); }, false);
+  elBtnHelpDone.addEventListener('click', function () { AudioFX.resume(); closeHelp(); }, false);
 
   window.addEventListener('resize', function () { layout(); }, false);
   window.addEventListener('orientationchange', function () {
@@ -1195,7 +1660,7 @@
     if (!last) last = now;
     var dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    update(dt);
+    if (G.state !== 'paused') update(dt);
     render();
     window.requestAnimationFrame(frame);
   }
@@ -1205,6 +1670,7 @@
   layout();
   startIdle();
   elBestStart.textContent = String(loadBest());
+  elCareerStart.textContent = String(loadCareer());
   buildDots(LEVELS[0].target);
   elLevelNo.textContent = '第 ' + LEVELS[0].no + ' 号';
   elTarget.textContent = CFG.levelNames[3] + ' ×' + LEVELS[0].target;
