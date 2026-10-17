@@ -533,3 +533,9 @@ body {
 @media (max-height: 620px) {
   .help-body { max-height: 46vh; }
 }
+.btn[disabled] {
+  background: #3A4A5A;
+  color: #7A8894;
+  box-shadow: 0 6px 0 #263544;
+  cursor: default;
+}

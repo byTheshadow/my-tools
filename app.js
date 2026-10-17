@@ -1,9 +1,33 @@
-/* 抓坏猫 v0.2
+/* 抓坏猫 v0.3
  * 纯本地单页小游戏，无外部请求、无内联脚本。
  * 语法基线：ES2017 / Chrome 61
+ *
+ * v0.3 变化：
+ *   1. 接入 assets/ 下的正式图片，加载失败自动退回 Canvas 绘制。
+ *   2. 合成规则改为：坏小奶猫同色 ×3 → 暴走猫；暴走猫任意 ×3 → 坏猫大王。
+ *   3. 文案统一为 乖猫 / 坏小奶猫 / 暴走猫 / 坏猫大王。
  */
 (function () {
   'use strict';
+
+  /* ================= 素材表 ================= */
+  /* 改图只改这里。路径按仓库里的实际文件名一字不差地写。 */
+
+  var ART = {
+    bg: 'assets/bg.png',
+    baby: [
+      'assets/cat_bad_baby_black.png.jpg',   // 颜色 0
+      'assets/cat_bad_baby_orange.png.jpg'   // 颜色 1
+    ],
+    berserk: 'assets/cat_bad_berserk.png.jpg',
+    boss: 'assets/cat_bad_boss.png.jpg',
+    good: [
+      'assets/cat_good_1.png.jpg',
+      'assets/cat_good_2.png.jpg'
+    ],
+    itemCatnip: 'assets/item_catnip.png.jpg',  // v0.4 用
+    itemSlot: 'assets/item_slot.png.jpg'       // v0.4 用
+  };
 
   /* ================= 配置 ================= */
 
@@ -11,7 +35,7 @@
     cageSlots: 7,
     mergeNeed: 3,
     maxLevel: 3,
-    levelNames: ['', '小奶猫', '暴走猫', '猫大王'],
+    levelNames: ['', '坏小奶猫', '暴走猫', '坏猫大王'],
     mergeCooldown: 0.16,
     captureHold: 0.55,
     flyDur: 0.3,
@@ -19,13 +43,14 @@
     scoreMerge: 60,
     scoreCapture: 500,
     scoreTimeBonus: 10,
-    penaltyGood: 15,                 // 误点好猫扣分
-    lockGood: 0.4,                   // 误点好猫后的"愣住"时间（秒）
+    penaltyGood: 15,                 // 误点乖猫扣分
+    lockGood: 0.4,                   // 误点乖猫后的"愣住"时间（秒）
     missRates: [0.08, 0.22, 0.38],   // 警觉度 1/2/3 对应的扑空率
     alertWeights: [0.5, 0.35, 0.15], // 警觉度出现权重
     pityAfter: 2,                    // 连续扑空 2 次，第 3 次必中
     releaseHelpRate: 0.3,            // 放走时连带跑一只同伙的概率
     losePenalty: 100,                // 失败扣累计警务分
+    loadTimeout: 3.5,                // 素材加载最长等待（秒），超时就先开场
     storeKey: 'zhuahuaimao.best.v1',
     careerKey: 'zhuahuaimao.career.v1',
     hintKey: 'zhuahuaimao.hints.v1'
@@ -36,20 +61,23 @@
       no: 1,
       target: 1,
       duration: 90,
-      species: 2,
+      colors: 2,         // 坏小奶猫的颜色数
       spawnEvery: 1.05,
       spawnJitter: 0.35,
       crossTime: 5.4,
-      good: true,        // v0.2 试玩关：好猫与扑空全开，v0.4 起按关卡表分级开启
+      good: true,        // v0.3 试玩关：乖猫与扑空全开，v0.5 起按关卡表分级开启
       goodRate: 0.2,
       miss: true
     }
   ];
 
-  var SPECIES = [
-    { name: '橘', coat: '#E8903A', shade: '#C26C1C', ear: '#F2B47A', mark: 'stripe' },
-    { name: '灰', coat: '#95A2B2', shade: '#6C7A8C', ear: '#B9C4D1', mark: 'spot' }
+  // 图片加载失败时的兜底画法用色。界面文案不出现这些颜色词。
+  var BABY = [
+    { coat: '#4A5260', shade: '#2E3540', ear: '#6C7686', mark: 'spot' },
+    { coat: '#E8903A', shade: '#C26C1C', ear: '#F2B47A', mark: 'stripe' }
   ];
+  var BERSERK = { coat: '#B5564A', shade: '#8C3A31', ear: '#D98B7E', mark: 'stripe' };
+  var BOSS = { coat: '#8E6BB5', shade: '#6A4A8C', ear: '#B79AD6', mark: 'spot' };
 
   var GOODS = [
     { coat: '#F3E9D2', shade: '#D8C7A4', ear: '#F2B4B8' },
@@ -68,6 +96,13 @@
     mint: '#5FB3A1',
     dark: '#121C26'
   };
+
+  // 等级 + 颜色 → 兜底皮肤。lv>=2 不分颜色。
+  function skinOf(lv, sp) {
+    if (lv >= 3) return BOSS;
+    if (lv === 2) return BERSERK;
+    return BABY[sp % BABY.length];
+  }
 
   /* ================= DOM ================= */
 
@@ -110,7 +145,6 @@
   function randInt(n) { return Math.floor(Math.random() * n); }
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
   function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
-  function easeBack(t) { var c = 1.9; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); }
 
   function fmtTime(sec) {
     var s = Math.max(0, Math.ceil(sec));
@@ -189,6 +223,61 @@
     saveHints();
     toast(text, kind, 2.8);
     return true;
+  }
+
+  /* ================= 素材加载 ================= */
+  /* 每张图独立加载，失败只影响那一张，其余照用。全失败也能玩。 */
+
+  var PIC = {};        // path -> { img, ok }
+  var pending = 0;
+  var loadDone = false;
+  var loadClock = 0;
+
+  function loadPic(path) {
+    if (!path) return null;
+    if (PIC[path]) return PIC[path];
+    var rec = { img: new window.Image(), ok: false, bad: false };
+    PIC[path] = rec;
+    pending++;
+    rec.img.onload = function () {
+      rec.ok = rec.img.width > 0 && rec.img.height > 0;
+      rec.bad = !rec.ok;
+      pending--;
+      if (pending <= 0) loadDone = true;
+    };
+    rec.img.onerror = function () {
+      rec.bad = true;
+      pending--;
+      if (pending <= 0) loadDone = true;
+    };
+    rec.img.src = path;
+    return rec;
+  }
+
+  function preload() {
+    loadPic(ART.bg);
+    for (var i = 0; i < ART.baby.length; i++) loadPic(ART.baby[i]);
+    loadPic(ART.berserk);
+    loadPic(ART.boss);
+    for (var g = 0; g < ART.good.length; g++) loadPic(ART.good[g]);
+    loadPic(ART.itemCatnip);
+    loadPic(ART.itemSlot);
+    if (pending === 0) loadDone = true;
+  }
+
+  function picOf(path) {
+    var rec = PIC[path];
+    return rec && rec.ok ? rec : null;
+  }
+
+  function catPic(lv, sp) {
+    if (lv >= 3) return picOf(ART.boss);
+    if (lv === 2) return picOf(ART.berserk);
+    return picOf(ART.baby[sp % ART.baby.length]);
+  }
+
+  function goodPic(v) {
+    return picOf(ART.good[v % ART.good.length]);
   }
 
   /* ================= 音效（WebAudio 现场合成） ================= */
@@ -324,7 +413,7 @@
   /* ================= 游戏状态 ================= */
 
   var G = {
-    state: 'idle',           // idle | playing | over
+    state: 'idle',           // idle | playing | paused | ending | over
     level: LEVELS[0],
     time: 0,
     score: 0,
@@ -346,7 +435,7 @@
     catId: 1,
     toldEscape: false,
     clock: 0,
-    lock: 0,                 // 误点好猫后的点击冷却
+    lock: 0,                 // 误点乖猫后的点击冷却
     sel: -1,                 // 笼满时选中的待放走格子
     runners: [],             // 被放走、正在逃跑的猫
     goodHit: 0,
@@ -492,9 +581,45 @@
   }
 
   /* ================= 猫的绘制 ================= */
+  /* drawCat / drawGood 是统一入口：有图用图，没图退回手绘。 */
 
-  function drawCat(c, x, y, size, spIdx, lv, phase, alpha) {
-    var sp = SPECIES[spIdx];
+  function drawShadow(c, size) {
+    c.fillStyle = 'rgba(0,0,0,.28)';
+    c.beginPath();
+    c.ellipse(0, size * 0.46, size * 0.34, size * 0.07, 0, 0, Math.PI * 2);
+    c.fill();
+  }
+
+  function drawPic(c, rec, x, y, size, phase, alpha) {
+    var iw = rec.img.width, ih = rec.img.height;
+    var k = Math.min(size / iw, size / ih);
+    var w = iw * k, h = ih * k;
+
+    c.save();
+    c.globalAlpha = alpha === undefined ? 1 : alpha;
+    c.translate(x, y);
+    if (phase) c.rotate(Math.sin(phase) * 0.06);
+    drawShadow(c, size);
+    c.drawImage(rec.img, -w / 2, -h / 2, w, h);
+    c.restore();
+  }
+
+  function drawCat(c, x, y, size, sp, lv, phase, alpha) {
+    var rec = catPic(lv, sp);
+    if (rec) { drawPic(c, rec, x, y, size, phase, alpha); return; }
+    drawCatShape(c, x, y, size, sp, lv, phase, alpha);
+  }
+
+  function drawGood(c, x, y, size, v, phase, alpha) {
+    var rec = goodPic(v);
+    if (rec) { drawPic(c, rec, x, y, size, phase, alpha); return; }
+    drawGoodShape(c, x, y, size, v, phase, alpha);
+  }
+
+  /* ---------- 兜底手绘：坏猫 ---------- */
+
+  function drawCatShape(c, x, y, size, spIdx, lv, phase, alpha) {
+    var sk = skinOf(lv, spIdx);
     var s = size / 100;
 
     c.save();
@@ -503,33 +628,32 @@
     c.scale(s, s);
     if (phase) c.rotate(Math.sin(phase) * 0.06);
 
-    // 影子
     c.fillStyle = 'rgba(0,0,0,.28)';
     c.beginPath();
     c.ellipse(0, 46, 34, 7, 0, 0, Math.PI * 2);
     c.fill();
 
     // 耳朵
-    c.fillStyle = sp.shade;
+    c.fillStyle = sk.shade;
     c.beginPath();
     c.moveTo(-38, -14); c.lineTo(-31, -52); c.lineTo(-5, -26); c.closePath(); c.fill();
     c.beginPath();
     c.moveTo(38, -14); c.lineTo(31, -52); c.lineTo(5, -26); c.closePath(); c.fill();
-    c.fillStyle = sp.ear;
+    c.fillStyle = sk.ear;
     c.beginPath();
     c.moveTo(-32, -18); c.lineTo(-28, -42); c.lineTo(-13, -26); c.closePath(); c.fill();
     c.beginPath();
     c.moveTo(32, -18); c.lineTo(28, -42); c.lineTo(13, -26); c.closePath(); c.fill();
 
     // 头
-    c.fillStyle = sp.coat;
+    c.fillStyle = sk.coat;
     c.beginPath();
     c.ellipse(0, 2, 42, 39, 0, 0, Math.PI * 2);
     c.fill();
 
     // 花色
-    c.fillStyle = sp.shade;
-    if (sp.mark === 'stripe') {
+    c.fillStyle = sk.shade;
+    if (sk.mark === 'stripe') {
       c.fillRect(-16, -32, 5, 13);
       c.fillRect(-4, -36, 5, 16);
       c.fillRect(8, -32, 5, 13);
@@ -603,7 +727,7 @@
     c.beginPath(); c.moveTo(28, 16); c.lineTo(46, 12); c.stroke();
     c.beginPath(); c.moveTo(28, 21); c.lineTo(45, 23); c.stroke();
 
-    // 猫大王：王冠
+    // 坏猫大王：王冠
     if (lv >= 3) {
       c.fillStyle = COLOR.amber;
       c.beginPath();
@@ -622,11 +746,14 @@
     c.restore();
   }
 
-  function drawGoodCat(c, x, y, size, v, phase) {
+  /* ---------- 兜底手绘：乖猫 ---------- */
+
+  function drawGoodShape(c, x, y, size, v, phase, alpha) {
     var g = GOODS[v % GOODS.length];
     var s = size / 100;
 
     c.save();
+    c.globalAlpha = alpha === undefined ? 1 : alpha;
     c.translate(x, y);
     c.scale(s, s);
     if (phase) c.rotate(Math.sin(phase) * 0.06);
@@ -636,7 +763,6 @@
     c.ellipse(0, 46, 34, 7, 0, 0, Math.PI * 2);
     c.fill();
 
-    // 耳朵
     c.fillStyle = g.shade;
     c.beginPath();
     c.moveTo(-38, -14); c.lineTo(-31, -52); c.lineTo(-5, -26); c.closePath(); c.fill();
@@ -648,18 +774,15 @@
     c.beginPath();
     c.moveTo(32, -18); c.lineTo(28, -42); c.lineTo(13, -26); c.closePath(); c.fill();
 
-    // 头
     c.fillStyle = g.coat;
     c.beginPath();
     c.ellipse(0, 2, 42, 39, 0, 0, Math.PI * 2);
     c.fill();
 
-    // 腮红
     c.fillStyle = 'rgba(240,140,155,.5)';
     c.beginPath(); c.ellipse(-27, 14, 8, 5, 0, 0, 6.3); c.fill();
     c.beginPath(); c.ellipse(27, 14, 8, 5, 0, 0, 6.3); c.fill();
 
-    // 眼睛：无眼罩，圆溜溜
     var blink = Math.sin((phase || 0) * 0.7) > 0.985 ? 0.12 : 1;
     c.fillStyle = '#1B2733';
     c.beginPath(); c.ellipse(-17, -2, 7, 9 * blink, 0, 0, 6.3); c.fill();
@@ -672,7 +795,6 @@
       c.beginPath(); c.arc(19, 1, 1.2, 0, 6.3); c.fill();
     }
 
-    // 鼻子与微笑
     c.fillStyle = '#E58A94';
     c.beginPath();
     c.moveTo(-5, 15); c.lineTo(5, 15); c.lineTo(0, 21); c.closePath(); c.fill();
@@ -682,7 +804,6 @@
     c.beginPath(); c.moveTo(0, 21); c.quadraticCurveTo(-6, 31, -15, 23); c.stroke();
     c.beginPath(); c.moveTo(0, 21); c.quadraticCurveTo(6, 31, 15, 23); c.stroke();
 
-    // 胡须
     c.strokeStyle = 'rgba(60,50,50,.4)';
     c.lineWidth = 1.8;
     c.beginPath(); c.moveTo(-28, 16); c.lineTo(-46, 12); c.stroke();
@@ -690,7 +811,7 @@
     c.beginPath(); c.moveTo(28, 16); c.lineTo(46, 12); c.stroke();
     c.beginPath(); c.moveTo(28, 21); c.lineTo(45, 23); c.stroke();
 
-    // 蝴蝶结（好猫标志）
+    // 蝴蝶结（乖猫标志）
     c.fillStyle = COLOR.mint;
     c.strokeStyle = '#3F8A7A';
     c.lineWidth = 2;
@@ -759,13 +880,13 @@
     }
     G.cats.push({
       id: G.catId++,
-      sp: good ? randInt(GOODS.length) : randInt(def.species),
+      sp: good ? randInt(GOODS.length) : randInt(def.colors),
       lv: 1,
       good: good,
       alert: alert,          // 0-2，对应头顶 1-3 个感叹号
       miss: 0,               // 已连续扑空次数
       dodge: 0,
-      hit: false,            // 好猫是否已被误点（只扣一次）
+      hit: false,            // 乖猫是否已被误点（只扣一次）
       seen: false,
       x: -size,
       speed: speed,
@@ -856,9 +977,9 @@
     addScore(-CFG.penaltyGood);
     G.goodHit++;
     G.lock = CFG.lockGood;
-    floatText(cat.x, Math.max(14, cy - L.catSize * 0.9), '好猫！−' + CFG.penaltyGood, COLOR.stamp, 16);
+    floatText(cat.x, Math.max(14, cy - L.catSize * 0.9), '乖猫！−' + CFG.penaltyGood, COLOR.stamp, 16);
     burst(cat.x, cy, 8, [COLOR.mint, COLOR.paper], 120);
-    hintOnce('goodHit', '点到好猫了：扣分，还要愣一下', 'warn');
+    hintOnce('goodHit', '点到乖猫了：扣分，还要愣一下', 'warn');
   }
 
   function onMiss(cat, cy) {
@@ -908,7 +1029,7 @@
       vx: dir * rand(230, 300),
       t: -(delay || 0)
     });
-    burst(p.x, p.y, 7, [SPECIES[sl.sp].coat, COLOR.paper], 130);
+    burst(p.x, p.y, 7, [skinOf(sl.lv, sl.sp).coat, COLOR.paper], 130);
   }
 
   function releaseSlot(i) {
@@ -959,31 +1080,50 @@
     return true;
   }
 
+  /* ---------- 合成：1 级看颜色，2 级不看颜色 ---------- */
+
+  function canMerge(s) {
+    return s && !s.arriving && s.capture <= 0;
+  }
+
   function resolveOneMerge() {
-    for (var lv = 1; lv < CFG.maxLevel; lv++) {
-      for (var sp = 0; sp < SPECIES.length; sp++) {
-        var hits = [];
-        for (var i = 0; i < G.slots.length; i++) {
-          var s = G.slots[i];
-          if (s && !s.arriving && s.capture <= 0 && s.lv === lv && s.sp === sp) hits.push(i);
-          if (hits.length === CFG.mergeNeed) break;
-        }
-        if (hits.length === CFG.mergeNeed) {
-          doMerge(hits, sp, lv);
-          return true;
-        }
+    // 先找 1 级：同颜色凑 3
+    for (var sp = 0; sp < BABY.length; sp++) {
+      var hits = [];
+      for (var i = 0; i < G.slots.length; i++) {
+        var s = G.slots[i];
+        if (canMerge(s) && s.lv === 1 && s.sp === sp) hits.push(i);
+        if (hits.length === CFG.mergeNeed) break;
+      }
+      if (hits.length === CFG.mergeNeed) {
+        doMerge(hits, sp, 1);
+        return true;
       }
     }
+
+    // 再找 2 级：不分颜色，任意 3 只
+    var hits2 = [];
+    for (var j = 0; j < G.slots.length; j++) {
+      var s2 = G.slots[j];
+      if (canMerge(s2) && s2.lv === 2) hits2.push(j);
+      if (hits2.length === CFG.mergeNeed) break;
+    }
+    if (hits2.length === CFG.mergeNeed) {
+      doMerge(hits2, G.slots[hits2[0]].sp, 2);
+      return true;
+    }
+
     return false;
   }
 
   function doMerge(idx, sp, lv) {
     var target = idx[0];
     var to = slotCenter(target);
+    var tint = skinOf(lv, sp).coat;
 
     for (var i = 1; i < idx.length; i++) {
       var p = slotCenter(idx[i]);
-      burst(p.x, p.y, 5, [SPECIES[sp].coat, COLOR.paper], 90);
+      burst(p.x, p.y, 5, [tint, COLOR.paper], 90);
       G.slots[idx[i]] = null;
     }
 
@@ -997,12 +1137,12 @@
     var gain = CFG.scoreMerge * newLv * G.chain;
     G.score += gain;
 
-    burst(to.x, to.y, 16, [SPECIES[sp].coat, COLOR.amber, COLOR.paper], 190);
+    burst(to.x, to.y, 16, [skinOf(newLv, sp).coat, COLOR.amber, COLOR.paper], 190);
     var label = G.chain > 1 ? '连锁 ×' + G.chain + '  +' + gain : '+' + gain;
     floatText(to.x, to.y - L.cellH * 0.5, label, G.chain > 1 ? COLOR.amber : COLOR.paper, G.chain > 1 ? 17 : 15);
 
     if (newLv < CFG.maxLevel) {
-      floatText(to.x, L.chainY + 4, CFG.levelNames[newLv] + '！', SPECIES[sp].coat, 16);
+      floatText(to.x, L.chainY + 4, CFG.levelNames[newLv] + '！', COLOR.amber, 16);
     }
 
     AudioFX.merge(newLv, G.chain);
@@ -1011,7 +1151,6 @@
   }
 
   function doCapture(i) {
-    var s = G.slots[i];
     var p = slotCenter(i);
     G.slots[i] = null;
     G.captured++;
@@ -1036,6 +1175,12 @@
     G.beltOffset = (G.beltOffset + dt * (L.w / G.level.crossTime)) % 44;
     if (G.lock > 0) G.lock -= dt;
 
+    if (!loadDone) {
+      loadClock += dt;
+      if (loadClock >= CFG.loadTimeout) loadDone = true;
+      syncLoadBtn();
+    }
+
     // 生成
     if (G.state === 'idle' || G.state === 'playing') {
       G.spawnTimer += dt;
@@ -1059,7 +1204,7 @@
       if (cat.dodge > 0) cat.dodge -= dt;
       if (cat.good && !cat.seen && G.state === 'playing' && cat.x > L.catSize * 0.6) {
         cat.seen = true;
-        hintOnce('good', '戴蝴蝶结的是好猫，别点它', 'good');
+        hintOnce('good', '戴蝴蝶结的是乖猫，别点它', 'good');
       }
       if (cat.x > L.w + L.catSize) {
         G.cats.splice(i, 1);
@@ -1170,6 +1315,8 @@
     var w = L.w, h = L.h;
     ctx.clearRect(0, 0, w, h);
 
+    drawBackground();
+
     ctx.save();
     if (G.shake > 0 && !reduceMotion) {
       var m = G.shake * 11;
@@ -1185,7 +1332,7 @@
       var cyy = catY(cat, G.clock);
       var csz = L.catSize * cat.scale;
       if (cat.good) {
-        drawGoodCat(ctx, cat.x, cyy, csz, cat.sp, G.clock * 1.6 + cat.bob);
+        drawGood(ctx, cat.x, cyy, csz, cat.sp, G.clock * 1.6 + cat.bob);
       } else {
         drawCat(ctx, cat.x, cyy, csz, cat.sp, cat.lv, G.clock * 1.6 + cat.bob);
         if (G.level.miss) {
@@ -1219,6 +1366,22 @@
     ctx.restore();
   }
 
+  // 背景图按"铺满裁切"放置，没图就留空，露出 CSS 的夜色渐变
+  function drawBackground() {
+    var rec = picOf(ART.bg);
+    if (!rec) return;
+    var iw = rec.img.width, ih = rec.img.height;
+    var k = Math.max(L.w / iw, L.h / ih);
+    var w = iw * k, h = ih * k;
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.drawImage(rec.img, (L.w - w) / 2, (L.h - h) / 2, w, h);
+    ctx.restore();
+    // 压一层暗色，保证猫和文字看得清
+    ctx.fillStyle = 'rgba(8,14,21,.42)';
+    ctx.fillRect(0, 0, L.w, L.h);
+  }
+
   function drawBeltLamp() {
     var g = ctx.createRadialGradient(L.w / 2, L.beltTop - 30, 10, L.w / 2, L.beltTop - 30, L.w * 0.78);
     g.addColorStop(0, 'rgba(242,177,52,.17)');
@@ -1231,7 +1394,6 @@
   function drawBelt() {
     var top = L.beltTop, hgt = L.beltH, w = L.w;
 
-    // 带体
     var g = ctx.createLinearGradient(0, top, 0, top + hgt);
     g.addColorStop(0, '#36495E');
     g.addColorStop(0.42, COLOR.steel);
@@ -1239,7 +1401,6 @@
     ctx.fillStyle = g;
     ctx.fillRect(0, top, w, hgt);
 
-    // 斜纹
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, top, w, hgt);
@@ -1254,13 +1415,11 @@
     }
     ctx.restore();
 
-    // 上下边缘
     ctx.fillStyle = 'rgba(242,177,52,.55)';
     ctx.fillRect(0, top, w, 2);
     ctx.fillStyle = 'rgba(0,0,0,.45)';
     ctx.fillRect(0, top + hgt - 3, w, 3);
 
-    // 滚轮
     ctx.fillStyle = '#445C76';
     var rr = 6;
     var roll = (G.beltOffset * 0.6) % 26;
@@ -1270,7 +1429,6 @@
       ctx.fill();
     }
 
-    // 两端门洞
     var gw = Math.min(26, L.w * 0.07);
     var lg = ctx.createLinearGradient(0, 0, gw, 0);
     lg.addColorStop(0, 'rgba(6,11,17,.95)');
@@ -1284,6 +1442,7 @@
     ctx.fillRect(w - gw, top, gw, hgt);
   }
 
+  // 中部常驻的合成链示意：坏小奶猫 → 暴走猫 → 坏猫大王
   function drawChainGuide() {
     var y = L.chainY;
     var mini = Math.min(34, L.w * 0.085);
@@ -1295,7 +1454,7 @@
 
     var xs = [cx - step, cx, cx + step];
     for (var i = 0; i < 3; i++) {
-      drawCat(ctx, xs[i], y, mini, 0, i + 1, 0, 1);
+      drawCat(ctx, xs[i], y, mini, 1, i + 1, 0, 1);
     }
 
     ctx.globalAlpha = 0.6;
@@ -1310,19 +1469,18 @@
     ctx.font = '600 10px -apple-system, "PingFang SC", sans-serif';
     for (var k = 0; k < 3; k++) {
       ctx.fillStyle = k === 2 ? COLOR.amber : COLOR.dim;
-      ctx.fillText(CFG.levelNames[k + 1], xs[k], y + mini * 0.78);
+      ctx.fillText(CFG.levelNames[k + 1], xs[k], y + mini * 0.82);
     }
 
     ctx.globalAlpha = 0.5;
     ctx.fillStyle = COLOR.dim;
-    ctx.font = '600 10px -apple-system, \"PingFang SC\", sans-serif';
-    ctx.fillText('同花色 · 同等级 · 凑 3 合成', cx, y + mini * 1.34);
-    ctx.fillText('连着合叫连锁，倍率一路涨', cx, y + mini * 1.34 + 14);
+    ctx.font = '600 10px -apple-system, "PingFang SC", sans-serif';
+    ctx.fillText('坏小奶猫要同颜色凑 3 只', cx, y + mini * 1.38);
+    ctx.fillText('暴走猫不分颜色，凑 3 只就行', cx, y + mini * 1.38 + 14);
     ctx.restore();
   }
 
   function drawCage() {
-    // 标题行
     ctx.fillStyle = COLOR.dim;
     ctx.font = '600 11px -apple-system, "PingFang SC", sans-serif';
     ctx.textAlign = 'left';
@@ -1353,7 +1511,7 @@
       var y = L.cellTop;
       var s = G.slots[i];
 
-      ctx.fillStyle = s ? '#1D2E3D' : '#141F2A';
+      ctx.fillStyle = s ? 'rgba(29,46,61,.92)' : 'rgba(20,31,42,.88)';
       roundRect(ctx, x, y, L.cellW, L.cellH, 3);
       ctx.fill();
       ctx.strokeStyle = s ? '#3A5068' : '#223243';
@@ -1512,8 +1670,8 @@
     elVerdict.className = win ? 'verdict' : 'verdict miss';
     elEndTitle.textContent = win ? '全部落网' : '时间到了';
     elEndNote.textContent = win
-      ? '猫大王已收押，剩下的同伙还在外面。'
-      : '猫大王还逍遥法外，再蹲守一轮。';
+      ? '坏猫大王已收押，剩下的同伙还在外面。'
+      : '坏猫大王还逍遥法外，再蹲守一轮。';
 
     while (elTally.firstChild) elTally.removeChild(elTally.firstChild);
     var career = loadCareer();
@@ -1523,9 +1681,9 @@
     var diffText = diff >= 0 ? '+' + diff : '−' + (-diff);
 
     addTally('抓捕得分', String(G.score));
-    addTally('逮捕猫大王', G.captured + ' / ' + G.level.target);
+    addTally('逮捕坏猫大王', G.captured + ' / ' + G.level.target);
     addTally('漏网坏猫', String(G.escaped));
-    if (G.level.good) addTally('误点好猫', G.goodHit + ' 只');
+    if (G.level.good) addTally('误点乖猫', G.goodHit + ' 只');
     if (win) addTally('剩余时间奖励', '+' + timeBonus);
     addTally('总分', String(total), true);
     addTally('累计警务分', nextCareer + '（' + diffText + '）');
@@ -1585,9 +1743,19 @@
 
   canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); }, false);
 
+  function syncLoadBtn() {
+    if (loadDone) {
+      if (elBtnStart.disabled) {
+        elBtnStart.disabled = false;
+        elBtnStart.textContent = '开始抓捕';
+      }
+    }
+  }
+
   elBtnStart.addEventListener('click', function () {
     AudioFX.init();
     AudioFX.resume();
+    if (elBtnStart.disabled) return;
     if (!hints.help) { openHelp('first'); return; }
     beginRound();
   }, false);
@@ -1667,6 +1835,12 @@
 
   /* ================= 启动 ================= */
 
+  preload();
+  if (!loadDone) {
+    elBtnStart.disabled = true;
+    elBtnStart.textContent = '素材加载中…';
+  }
+
   layout();
   startIdle();
   elBestStart.textContent = String(loadBest());
@@ -1676,6 +1850,7 @@
   elTarget.textContent = CFG.levelNames[3] + ' ×' + LEVELS[0].target;
   G.time = LEVELS[0].duration;
   syncHud();
+  syncLoadBtn();
   window.requestAnimationFrame(frame);
 
 })();
