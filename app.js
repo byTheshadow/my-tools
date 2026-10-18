@@ -40,15 +40,15 @@
   };
 
   /* ---------- 音频文件表（v0.5.1） ---------- */
-  /* 文件可以不存在：缺哪个就退回现在的合成音效（背景音乐缺了就没有音乐）。 */
+  /* 路径留空 '' 表示没有这个文件：不会发请求，直接用合成音效。有了文件再把路径填上。 */
 
   var SND = {
     bgm: 'assets/vaitsez-gaming-gaming-music-607226.mp3',   // 背景音乐（循环）
-    bgmBoss: 'assets/bgm_boss.mp3',      // 第 10 关与无尽的背景音乐（可选，缺了就用 bgm）
-    arrest: 'assets/sfx_arrest.mp3',     // 逮捕坏猫大王
-    alarm: 'assets/sfx_alarm.mp3',       // 劫狱警报
-    win: 'assets/sfx_win.mp3',           // 通关
-    lose: 'assets/sfx_lose.mp3',         // 失败
+    bgmBoss: '',      // 第 10 关与无尽的背景音乐（可选，缺了就用 bgm）
+    arrest: '',     // 逮捕坏猫大王
+    alarm: '',       // 劫狱警报
+    win: '',           // 通关
+    lose: '',         // 失败
     merge: 'assets/freesound_gamestudio-combine-special-394482.mp3',   // 合成升级
     drop: 'assets/juniorsoundays-ui-sound-70-527837.mp3'               // 获得道具
   };
