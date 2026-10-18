@@ -186,6 +186,7 @@ body {
 #bar {
   flex: 0 0 auto;
   display: flex;
+  justify-content: center;
   padding: 9px 10px 8px;
   padding-bottom: calc(8px + var(--safe-bottom));
   background: linear-gradient(180deg, rgba(10,18,26,.5) 0%, rgba(10,18,26,.97) 100%);
@@ -196,6 +197,7 @@ body {
   position: relative;
   flex: 1 1 0;
   min-width: 0;
+  max-width: 132px;
   margin: 0 3px;
   padding: 5px 2px 4px;
   display: flex;
@@ -630,4 +632,113 @@ body {
   color: #7A8894;
   box-shadow: 0 6px 0 #263544;
   cursor: default;
+}
+
+/* ---------- v0.5：选关、警衔、无尽 ---------- */
+
+.warrant-dots {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--amber);
+  font-variant-numeric: tabular-nums;
+}
+
+.best.best-2 { margin-top: 6px; }
+
+#btnNext { margin-bottom: 18px; }
+
+.btn-row { display: flex; margin-top: 14px; }
+
+.btn-row .btn {
+  flex: 1 1 0;
+  margin: 0 4px;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.btn-row .btn:first-child { margin-left: 0; }
+.btn-row .btn:last-child { margin-right: 0; }
+
+.screen-levels { max-width: 360px; }
+
+.levels-rank {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--paper-dim);
+}
+
+.levels-body {
+  max-height: 54vh;
+  margin: 0 0 16px;
+  padding: 2px 10px 4px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--ink-2);
+  border: 1px solid #243545;
+  border-top: 3px solid var(--amber);
+  border-radius: 2px;
+  text-align: left;
+}
+
+.lv {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin: 8px 0;
+  padding: 9px 10px;
+  background: #1B2C3B;
+  border: 1px solid #2A3E50;
+  border-radius: 2px;
+  color: var(--paper);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lv:active { background: #22374A; }
+.lv:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+
+.lv-no {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  margin-right: 11px;
+  border-radius: 50%;
+  background: var(--amber);
+  color: #1A1206;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 30px;
+  text-align: center;
+}
+
+.lv-main { flex: 1 1 auto; min-width: 0; }
+
+.lv-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+
+.lv-sub,
+.lv-note {
+  display: block;
+  font-style: normal;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #8694A1;
+}
+
+.lv-note { color: var(--mint); }
+
+.lv.done .lv-no { background: var(--stamp); color: #FFFFFF; }
+
+.lv.lock { opacity: .6; cursor: default; }
+.lv.lock .lv-no { background: #3A4A5A; color: #9AA6B2; }
+.lv.lock .lv-note { color: var(--stamp); }
+
+@media (max-height: 620px) {
+  .levels-body { max-height: 44vh; }
 }

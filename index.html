@@ -85,6 +85,7 @@
       <button type="button" class="btn btn-main" id="btnStart">开始抓捕</button>
       <button type="button" class="btn btn-ghost" id="btnRules">玩法说明</button>
       <p class="best">最高分 <span id="bestStart">0</span>　累计警务分 <span id="careerStart">0</span></p>
+      <p class="best best-2">警衔 <span id="rankStart">见习鱼干保护者</span></p>
     </div>
 
     <div class="screen" id="screenEnd" hidden>
@@ -92,9 +93,21 @@
       <h2 class="end-title" id="endTitle">全部落网</h2>
       <p class="end-note" id="endNote">坏猫大王已收押。</p>
       <dl class="tally" id="tally"></dl>
+      <button type="button" class="btn btn-main" id="btnNext" hidden>下一关</button>
       <button type="button" class="btn btn-main" id="btnAgain">再抓一次</button>
-      <button type="button" class="btn btn-ghost" id="btnRules2">玩法说明</button>
+      <div class="btn-row">
+        <button type="button" class="btn btn-ghost" id="btnToLevels">选关</button>
+        <button type="button" class="btn btn-ghost" id="btnRules2">玩法说明</button>
+      </div>
       <p class="best">最高分 <span id="bestEnd">0</span></p>
+    </div>
+
+    <div class="screen screen-levels" id="screenLevels" hidden>
+      <p class="brand-sub">今晚的案件</p>
+      <h2 class="help-title">选择案件</h2>
+      <p class="levels-rank" id="levelsRank"></p>
+      <div class="levels-body" id="levelList"></div>
+      <button type="button" class="btn btn-ghost" id="btnLevelsBack">返回</button>
     </div>
 
     <div class="screen screen-help" id="screenHelp" hidden>
@@ -105,7 +118,7 @@
         <section class="rule">
           <h3><i>1</i>认猫</h3>
           <p>戴<b>眼罩、坏笑</b>的是坏猫，要抓。</p>
-          <p>戴<b class="mint">蝴蝶结、微笑</b>的是乖猫，<b>千万别点</b>：误点扣 15 分，还会愣 0.4 秒，白白浪费时间。</p>
+          <p>戴<b class="mint">蝴蝶结、微笑</b>的是乖猫，<b>千万别点</b>：误点要扣分（第 1 关起 15 分，越往后越多），还会愣 0.4 秒，白白浪费时间。</p>
         </section>
 
         <section class="rule">
@@ -132,6 +145,7 @@
         <section class="rule">
           <h3><i>5</i>逮捕坏猫大王</h3>
           <p>3 只暴走猫合出<b>坏猫大王</b>，当场盖章逮捕，不占格子，通缉令上的红点亮一颗。</p>
+          <p>目标 2 只以上的关卡里，每逮捕一只（最后一只除外）<b>加 10 秒</b>。</p>
         </section>
 
         <section class="rule">
@@ -143,7 +157,7 @@
         <section class="rule">
           <h3><i>7</i>劫狱与别捣蛋</h3>
           <p>每有 <b>5 只</b>坏猫漏网（乖猫不算），监狱就会拉响警报，<b class="red">笼子闪红灯 1 到 2 秒</b>。顶部「劫狱」显示的就是进度。</p>
-          <p>红灯亮着时按底部的<b>别捣蛋</b>，就能拦住。没拦住，笼里会被劫走<b>一只</b>，还扣 20 分。</p>
+          <p>红灯亮着时按底部的<b>别捣蛋</b>，就能拦住。没拦住，笼里会被劫走<b>一只</b>，还要扣分（起步 20 分，越往后越多）。</p>
           <p>别捣蛋每局只有 <b>2 次</b>，平时误按不消耗；逮捕一只坏猫大王，回 1 次。笼子是空的就不会劫狱。</p>
         </section>
 
@@ -164,6 +178,20 @@
           <h3><i>10</i>输赢与得分</h3>
           <p>限时内逮够目标数量的坏猫大王算赢，时间耗尽算输；笼满不算输。</p>
           <p>抓一只 +5，逮捕坏猫大王 +500，赢了再按剩余秒数 ×10 加分。赢了累计警务分增加，输了扣 100，最低扣到 0。</p>
+        </section>
+
+        <section class="rule">
+          <h3><i>11</i>警衔与关卡</h3>
+          <p>关卡要<b>一关一关</b>打通，同时还要<b>警衔</b>够才能进。前几关只有部分机制，越往后越全，扣分越重，扑空越多，传送带也越快。</p>
+          <p class="eg"><span>见习鱼干保护者</span><em>→</em><span>第 1–3 关</span></p>
+          <p class="eg"><span>正式鱼干守护官</span><em>→</em><span>第 4–6 关</span></p>
+          <p class="eg"><span class="gold">首席鱼干守护长</span><em>→</em><span class="gold">第 7–10 关、无尽值班</span></p>
+          <p>警衔看<b>历史最高</b>的累计警务分，输了扣分也不会掉衔。打到某一关不会自动升衔，分不够就回头重玩刷分。</p>
+        </section>
+
+        <section class="rule">
+          <h3><i>12</i>无尽值班</h3>
+          <p>通关第 10 关、警衔够了就能开启。起步 60 秒，每逮捕一只坏猫大王 <b>加 10 秒</b>，同时难度再升一档。时间耗尽就收队，成绩看逮捕数，累计警务分只加不扣。</p>
         </section>
 
       </div>

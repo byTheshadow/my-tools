@@ -1,4 +1,9 @@
-/* 抓坏猫 v0.4
+/* 抓坏猫 v0.5
+ * v0.5：关卡表 1-10、警衔解锁、选关界面、进度存档、无尽值班、难度随关卡递增。
+ *
+ * 以下为 v0.4 记录：
+ *
+ * 抓坏猫 v0.4
  * 纯本地单页小游戏，无外部请求、无内联脚本。
  * 语法基线：ES2017 / Chrome 61
  *
@@ -74,28 +79,97 @@
     crateEvery: 30,
     crateJitter: 3,
 
+    // ---- v0.5 ----
+    bonusTime: 10,                   // 目标 2 只以上的关卡与无尽：每逮捕一只（最后一只除外）加时
+    progressKey: 'zhuahuaimao.progress.v1',
+    // 警衔：按历史最高累计警务分算；maxLevel 是该警衔能进的最高关卡
+    ranks: [
+      { name: '见习鱼干保护者', need: 0,    maxLevel: 3 },
+      { name: '正式鱼干守护官', need: 3000, maxLevel: 6 },
+      { name: '首席鱼干守护长', need: 9000, maxLevel: 999 }
+    ],
+
     storeKey: 'zhuahuaimao.best.v1',
     careerKey: 'zhuahuaimao.career.v1',
     hintKey: 'zhuahuaimao.hints.v1'
   };
 
+  /* ---------- 关卡表 ---------- */
+  /* 每关只加一条新规则；越往后扣分越重、扑空越多、传送带越快。抓猫得分不涨，只涨风险。 */
+
+  var LEVEL_BASE = {
+    colors: 2,
+    spawnEvery: 1.05,
+    spawnJitter: 0.35,
+    crossTime: 5.4,
+    good: false,         // 乖猫
+    goodRate: 0.2,
+    miss: false,         // 扑空与警觉度
+    raid: false,         // 劫狱与别捣蛋
+    drops: [],           // 合成会掉落、补给箱会给的道具种类
+    crate: false,        // 补给箱
+    penaltyGood: 15,     // 误点乖猫扣分
+    penaltyRaid: 20,     // 劫狱成功扣分
+    missMul: 1,          // 扑空率倍数
+    pityAfter: 2,        // 连续扑空几次后必中
+    endless: false,
+    title: ''
+  };
+
+  function mix(a, b) {
+    var o = {}, k;
+    for (k in a) if (a.hasOwnProperty(k)) o[k] = a[k];
+    for (k in b) if (b.hasOwnProperty(k)) o[k] = b[k];
+    return o;
+  }
+
+  function lv(no, target, o) {
+    var d = mix(LEVEL_BASE, o);
+    d.no = no;
+    d.target = target;
+    d.duration = target === 1 ? 90 : (target === 2 ? 150 : 180);
+    d.items = d.drops.length > 0;
+    d.bonusTime = target >= 2 ? CFG.bonusTime : 0;
+    return d;
+  }
+
+  var ALL_ITEMS = ['catnip', 'net', 'slot'];
+  var FULL = { good: true, miss: true, raid: true };
+  var TIER2 = mix(FULL, { goodRate: 0.22, penaltyGood: 20, penaltyRaid: 30, missMul: 1.15 });          // 第 4–6 关
+  var TIER3 = mix(FULL, { goodRate: 0.26, penaltyGood: 25, penaltyRaid: 40, missMul: 1.3,
+                          pityAfter: 3, crossTime: 4.6, spawnEvery: 0.95 });                              // 第 7–9 关
+  var TIER4 = mix(FULL, { goodRate: 0.3, penaltyGood: 35, penaltyRaid: 50, missMul: 1.5,
+                          pityAfter: 3, crossTime: 4.2, spawnEvery: 0.9, drops: ALL_ITEMS, crate: true }); // 第 10 关及无尽
+
   var LEVELS = [
-    {
-      no: 1,
-      target: 1,
-      duration: 90,
-      colors: 2,         // 坏小奶猫的颜色数
-      spawnEvery: 1.05,
-      spawnJitter: 0.35,
-      crossTime: 5.4,
-      good: true,        // v0.4 试玩关：所有机制全开，v0.5 起按关卡表分级开启
-      goodRate: 0.2,
-      miss: true,
-      raid: true,
-      items: true,
-      crate: true
-    }
+    lv(1, 1, { title: '教学：只管抓猫' }),
+    lv(2, 1, { title: '加入乖猫', good: true }),
+    lv(3, 1, { title: '加入扑空与警觉度', good: true, miss: true }),
+    lv(4, 2, mix(TIER2, { title: '加入劫狱与别捣蛋' })),
+    lv(5, 2, mix(TIER2, { title: '传送带加速', crossTime: 5.0 })),
+    lv(6, 2, mix(TIER2, { title: '合成会掉落猫薄荷', crossTime: 5.0, drops: ['catnip'] })),
+    lv(7, 2, mix(TIER3, { title: '加入大网', drops: ['catnip', 'net'] })),
+    lv(8, 3, mix(TIER3, { title: '加入加格', drops: ALL_ITEMS })),
+    lv(9, 3, mix(TIER3, { title: '传送带出补给箱', drops: ALL_ITEMS, crate: true })),
+    lv(10, 3, mix(TIER4, { title: 'Boss 关：全机制，难度拉满' }))
   ];
+
+  // 无尽值班：从第 10 关的难度起步，每逮捕一只再加一档
+  var ENDLESS = mix(LEVELS[9], { no: 0, target: Infinity, duration: 60, bonusTime: CFG.bonusTime, endless: true, title: '无尽值班' });
+
+  function levelDefFor(no) {
+    return mix(no === 0 ? ENDLESS : LEVELS[no - 1], {});
+  }
+
+  function applyEndless() {
+    var t = G.captured, d = G.level;
+    d.crossTime = Math.max(3.0, ENDLESS.crossTime - 0.1 * t);
+    d.goodRate = Math.min(0.4, ENDLESS.goodRate + 0.01 * t);
+    d.missMul = Math.min(2.0, ENDLESS.missMul + 0.03 * t);
+    d.spawnEvery = Math.max(0.65, ENDLESS.spawnEvery - 0.02 * t);
+    d.penaltyGood = Math.min(50, ENDLESS.penaltyGood + 2 * t);
+    d.penaltyRaid = Math.min(70, ENDLESS.penaltyRaid + 3 * t);
+  }
 
   // 图片加载失败时的兜底画法用色。界面文案不出现这些颜色词。
   var BABY = [
@@ -165,6 +239,14 @@
   var elBtnRules2 = $('btnRules2');
   var elBtnHelpDone = $('btnHelpDone');
   var elCareerStart = $('careerStart');
+  var elBar = $('bar');
+  var elScreenLevels = $('screenLevels');
+  var elLevelList = $('levelList');
+  var elLevelsRank = $('levelsRank');
+  var elBtnLevelsBack = $('btnLevelsBack');
+  var elBtnNext = $('btnNext');
+  var elBtnToLevels = $('btnToLevels');
+  var elRankStart = $('rankStart');
 
   // 道具栏：三个道具 + 别捣蛋
   var TOOL = {
@@ -261,6 +343,107 @@
     saveHints();
     toast(text, kind, 2.8);
     return true;
+  }
+
+  /* ================= 进度存档、警衔与解锁（v0.5） ================= */
+
+  function loadProgress() {
+    var o = null;
+    try {
+      var v = window.localStorage.getItem(CFG.progressKey);
+      o = v ? JSON.parse(v) : null;
+    } catch (e) { o = null; }
+    if (!o || typeof o !== 'object') o = {};
+    var p = {
+      cleared: parseInt(o.cleared, 10) || 0,                 // 已通关的最高关卡
+      best: (o.best && typeof o.best === 'object') ? o.best : {},
+      peak: parseInt(o.peak, 10) || 0,                       // 历史最高累计警务分
+      endless: { caps: 0, score: 0 }
+    };
+    if (o.endless && typeof o.endless === 'object') {
+      p.endless.caps = parseInt(o.endless.caps, 10) || 0;
+      p.endless.score = parseInt(o.endless.score, 10) || 0;
+    }
+    return p;
+  }
+
+  var DEV_UNLOCK = /[?&]unlock(=|&|$)/.test(window.location.search);   // 网址加 ?unlock：本次全部解锁，用于试玩，不写入存档
+
+  var P = loadProgress();
+  P.peak = Math.max(P.peak, loadCareer());
+  if (DEV_UNLOCK) { P.cleared = 10; P.peak = Math.max(P.peak, 99999); }
+
+  function saveProgress() {
+    if (DEV_UNLOCK) return;
+    try { window.localStorage.setItem(CFG.progressKey, JSON.stringify(P)); } catch (e) {}
+  }
+
+  function rankIndex(peak) {
+    var r = 0;
+    for (var i = 0; i < CFG.ranks.length; i++) {
+      if (peak >= CFG.ranks[i].need) r = i;
+    }
+    return r;
+  }
+
+  // 进某一关需要的最低警衔（no = 0 表示无尽）
+  function rankNeed(no) {
+    var n = no === 0 ? 999 : no;
+    for (var i = 0; i < CFG.ranks.length; i++) {
+      if (CFG.ranks[i].maxLevel >= n) return i;
+    }
+    return CFG.ranks.length - 1;
+  }
+
+  // 解锁 = 上一关已通关 + 警衔够
+  function canPlay(no) {
+    var need = no === 0 ? 10 : no - 1;
+    if (P.cleared < need) return { ok: false, reason: '先通关第 ' + need + ' 关' };
+    var ri = rankNeed(no);
+    if (rankIndex(P.peak) < ri) {
+      return { ok: false, reason: '需要「' + CFG.ranks[ri].name + '」，还差 ' + (CFG.ranks[ri].need - P.peak) + ' 分' };
+    }
+    return { ok: true, reason: '' };
+  }
+
+  function rankLineText() {
+    var r = rankIndex(P.peak);
+    var nxt = CFG.ranks[r + 1];
+    return '警衔：' + CFG.ranks[r].name + '　累计警务分 ' + P.peak +
+      (nxt ? '（距「' + nxt.name + '」还差 ' + (nxt.need - P.peak) + ' 分）' : '（已是最高警衔）');
+  }
+
+  function refreshRankUI() {
+    elRankStart.textContent = CFG.ranks[rankIndex(P.peak)].name;
+    elLevelsRank.textContent = rankLineText();
+  }
+
+  // 底部道具栏：本关没有的道具按钮不显示；一个都没有就整条收起（画布随之变高）
+  function applyBar(def) {
+    var any = false, i, k;
+    for (i = 0; i < ITEM_KEYS.length; i++) {
+      k = ITEM_KEYS[i];
+      var on = def.drops.indexOf(k) >= 0;
+      TOOL[k].btn.hidden = !on;
+      if (on) any = true;
+    }
+    TOOL.stop.btn.hidden = !def.raid;
+    if (def.raid) any = true;
+    var was = elBar.hidden;
+    elBar.hidden = !any;
+    if (was !== elBar.hidden) layout();
+  }
+
+  function showLevelHud(def) {
+    elLevelNo.textContent = def.endless ? '无尽' : '第 ' + def.no + ' 号';
+    if (def.endless) {
+      elTarget.textContent = '无尽值班';
+      while (elDots.firstChild) elDots.removeChild(elDots.firstChild);
+      elDots.textContent = '已逮捕 0';
+    } else {
+      elTarget.textContent = CFG.levelNames[3] + ' ×' + def.target;
+      buildDots(def.target);
+    }
   }
 
   /* ================= 素材加载 ================= */
@@ -478,6 +661,7 @@
     state: 'idle',           // idle | playing | paused | ending | over
     level: LEVELS[0],
     time: 0,
+    timeTotal: 90,           // 时间条的满格值（加时后会变大）
     score: 0,
     captured: 0,
     escaped: 0,
@@ -560,6 +744,8 @@
     resetSlots();
     G.spawnTimer = 0;
     G.nextSpawn = 0.5;
+    G.timeTotal = G.level.duration;
+    applyBar(G.level);
     G.stamp = null;
     G.runners = [];
     G.sel = -1;
@@ -570,6 +756,7 @@
     G.state = 'playing';
     G.level = def;
     G.time = def.duration;
+    G.timeTotal = def.duration;
     G.score = 0;
     G.captured = 0;
     G.escaped = 0;
@@ -594,12 +781,12 @@
     G.missTotal = 0;
     G.released = 0;
 
-    elLevelNo.textContent = '第 ' + def.no + ' 号';
-    elTarget.textContent = CFG.levelNames[3] + ' ×' + def.target;
-    buildDots(def.target);
+    showLevelHud(def);
+    applyBar(def);
     syncHud();
     syncTools();
     drawIcons();
+    toast(def.endless ? '无尽值班：抓得越多越难' : '第 ' + def.no + ' 号：' + def.title, 'good', 2.4);
   }
 
   function buildDots(n) {
@@ -608,6 +795,10 @@
   }
 
   function syncDots() {
+    if (G.level.endless) {
+      elDots.textContent = '已逮捕 ' + G.captured;
+      return;
+    }
     var kids = elDots.childNodes;
     for (var i = 0; i < kids.length; i++) {
       if (i < G.captured) kids[i].className = 'on';
@@ -632,7 +823,7 @@
       lastLeakShown = leakTxt;
     }
 
-    var total = G.level.duration;
+    var total = G.timeTotal || G.level.duration;
     var ratio = clamp(G.time / total, 0, 1);
     elTimeFill.style.transform = 'scaleX(' + ratio.toFixed(4) + ')';
 
@@ -1273,7 +1464,7 @@
     }
 
     // 只有头上有感叹号的猫才可能扑空；没有感叹号的一定抓得住
-    if (G.level.miss && cat.alert > 0 && cat.miss < CFG.pityAfter && Math.random() < CFG.missRates[cat.alert]) {
+    if (G.level.miss && cat.alert > 0 && cat.miss < G.level.pityAfter && Math.random() < Math.min(0.75, CFG.missRates[cat.alert] * G.level.missMul)) {
       onMiss(cat, cy);
       return true;
     }
@@ -1291,10 +1482,10 @@
     buzz(40);
     if (cat.hit) return;
     cat.hit = true;
-    addScore(-CFG.penaltyGood);
+    addScore(-G.level.penaltyGood);
     G.goodHit++;
     G.lock = CFG.lockGood;
-    floatText(cat.x, Math.max(14, cy - L.catSize * 0.9), '乖猫！−' + CFG.penaltyGood, COLOR.stamp, 16);
+    floatText(cat.x, Math.max(14, cy - L.catSize * 0.9), '乖猫！−' + G.level.penaltyGood, COLOR.stamp, 16);
     burst(cat.x, cy, 8, [COLOR.mint, COLOR.paper], 120);
     hintOnce('goodHit', '点到乖猫了：扣分，还要愣一下', 'warn');
   }
@@ -1307,7 +1498,7 @@
     buzz(12);
     burst(cat.x, cy + L.catSize * 0.3, 5, [COLOR.dim, COLOR.paper], 90);
     floatText(cat.x, Math.max(14, cy - L.catSize * 0.9), '扑空！', COLOR.paper, 16);
-    if (cat.miss >= CFG.pityAfter) {
+    if (cat.miss >= G.level.pityAfter) {
       floatText(cat.x, Math.max(30, cy - L.catSize * 1.15), '下次必中', COLOR.mint, 13);
     }
     hintOnce('miss', '扑空了：猫头上的 ! 越多越警觉，越容易扑空', null);
@@ -1319,7 +1510,8 @@
   function pickDrop() {
     var open = [];
     for (var i = 0; i < ITEM_KEYS.length; i++) {
-      if (G.inv[ITEM_KEYS[i]] < CFG.itemCap) open.push(ITEM_KEYS[i]);
+      var key = ITEM_KEYS[i];
+      if (G.level.drops.indexOf(key) >= 0 && G.inv[key] < CFG.itemCap) open.push(key);
     }
     return open.length ? open[randInt(open.length)] : null;
   }
@@ -1473,8 +1665,8 @@
     G.slots[idx] = null;
     G.raided++;
     launchRunner(sl, p, dir, 0);
-    addScore(-CFG.raidPenalty);
-    floatText(p.x, p.y - L.cellH * 0.6, '劫狱！−' + CFG.raidPenalty, COLOR.stamp, 17);
+    addScore(-G.level.penaltyRaid);
+    floatText(p.x, p.y - L.cellH * 0.6, '劫狱！−' + G.level.penaltyRaid, COLOR.stamp, 17);
     toast('被劫走一只！', 'warn');
     G.shake = 0.3;
     AudioFX.breakout();
@@ -1503,7 +1695,7 @@
   /* ---------- 三个道具 ---------- */
 
   function useItem(key) {
-    if (G.state !== 'playing' || !G.level.items) return;
+    if (G.state !== 'playing' || !G.level.items || G.level.drops.indexOf(key) < 0) return;
     if (G.inv[key] <= 0) {
       toast('没有' + ITEM_NAMES[key] + '了', 'warn', 0.9);
       return;
@@ -1749,6 +1941,14 @@
       floatText(p.x, p.y - L.cellH * 1.15, '别捣蛋 +1', COLOR.mint, 14);
     }
 
+    // 目标 2 只以上的关卡与无尽：每逮捕一只（最后一只除外）加时
+    if (G.level.bonusTime > 0 && G.captured < G.level.target) {
+      G.time += G.level.bonusTime;
+      G.timeTotal = Math.max(G.timeTotal, G.time);
+      floatText(p.x, Math.max(14, p.y - L.cellH * 1.7), '+' + G.level.bonusTime + ' 秒', COLOR.mint, 16);
+    }
+    if (G.level.endless) applyEndless();
+
     if (G.captured >= G.level.target) {
       G.state = 'ending';          // 冻结计时与生成，让庆祝动画放完
       G.alarm = 0;
@@ -1964,7 +2164,7 @@
       } else {
         drawCat(ctx, cat.x, cyy, csz, cat.sp, cat.lv, G.clock * 1.6 + cat.bob);
         if (G.level.miss && cat.alert > 0) {
-          drawAlertMarks(ctx, cat.x, cyy, L.catSize, cat.alert, cat.miss >= CFG.pityAfter, G.clock);
+          drawAlertMarks(ctx, cat.x, cyy, L.catSize, cat.alert, cat.miss >= G.level.pityAfter, G.clock);
         }
       }
     }
@@ -2379,47 +2579,93 @@
     G.state = 'over';
     G.alarm = 0;
 
+    var def = G.level;
+    var endless = !!def.endless;
     var timeBonus = win ? Math.floor(G.time) * CFG.scoreTimeBonus : 0;
     var total = G.score + timeBonus;
 
     var best = loadBest();
     if (total > best) { best = total; saveBest(best); }
 
-    elVerdict.textContent = win ? '已结案' : '未结案';
-    elVerdict.className = win ? 'verdict' : 'verdict miss';
-    elEndTitle.textContent = win ? '全部落网' : '时间到了';
-    elEndNote.textContent = win
-      ? '坏猫大王已收押，剩下的同伙还在外面。'
-      : '坏猫大王还逍遥法外，再蹲守一轮。';
-
-    while (elTally.firstChild) elTally.removeChild(elTally.firstChild);
+    // 累计警务分：赢了加本局总分，输了扣 100；无尽只加不扣
     var career = loadCareer();
-    var nextCareer = Math.max(0, career + (win ? total : -CFG.losePenalty));
+    var gain = endless ? total : (win ? total : -CFG.losePenalty);
+    var nextCareer = Math.max(0, career + gain);
     saveCareer(nextCareer);
     var diff = nextCareer - career;
     var diffText = diff >= 0 ? '+' + diff : '−' + (-diff);
 
+    // 警衔看历史最高累计分，输了扣分也不掉衔
+    var rankBefore = rankIndex(P.peak);
+    if (nextCareer > P.peak) P.peak = nextCareer;
+    var rankAfter = rankIndex(P.peak);
+
+    var record = false;
+    if (endless) {
+      if (G.captured > P.endless.caps || (G.captured === P.endless.caps && total > P.endless.score)) {
+        P.endless.caps = G.captured;
+        P.endless.score = total;
+        record = true;
+      }
+    } else if (win) {
+      if (def.no > P.cleared) P.cleared = def.no;
+      if (!(P.best[def.no] >= total)) { P.best[def.no] = total; record = true; }
+    }
+    saveProgress();
+
+    var note;
+    if (endless) {
+      elVerdict.textContent = '收队';
+      elVerdict.className = 'verdict';
+      elEndTitle.textContent = '值班结束';
+      note = '这一班一共逮捕 ' + G.captured + ' 只坏猫大王。';
+    } else {
+      elVerdict.textContent = win ? '已结案' : '未结案';
+      elVerdict.className = win ? 'verdict' : 'verdict miss';
+      elEndTitle.textContent = win ? '全部落网' : '时间到了';
+      note = win ? '坏猫大王已收押，剩下的同伙还在外面。' : '坏猫大王还逍遥法外，再蹲守一轮。';
+    }
+    if (record) note += ' 新纪录！';
+    if (rankAfter > rankBefore) note += ' 升衔：「' + CFG.ranks[rankAfter].name + '」。';
+
+    // 通关后：能进下一关就给「下一关」按钮，否则说明差什么
+    endNext = -1;
+    elBtnNext.hidden = true;
+    if (!endless && win) {
+      var nn = def.no < 10 ? def.no + 1 : 0;
+      var cp = canPlay(nn);
+      if (cp.ok) {
+        endNext = nn;
+        elBtnNext.hidden = false;
+        elBtnNext.textContent = nn === 0 ? '无尽值班' : '下一关';
+      } else {
+        note += ' ' + (nn === 0 ? '无尽值班' : '第 ' + nn + ' 关') + '：' + cp.reason + '。';
+      }
+    }
+    elEndNote.textContent = note;
+    elBtnAgain.textContent = endless ? '再来一班' : '再抓一次';
+
+    while (elTally.firstChild) elTally.removeChild(elTally.firstChild);
     addTally('抓捕得分', String(G.score));
-    addTally('逮捕坏猫大王', G.captured + ' / ' + G.level.target);
+    addTally('逮捕坏猫大王', isFinite(def.target) ? G.captured + ' / ' + def.target : String(G.captured));
     addTally('漏网坏猫', String(G.escaped));
-    if (G.level.raid) addTally('被劫走', G.raided + ' 只');
-    if (G.level.good) addTally('误点乖猫', G.goodHit + ' 只');
+    if (def.raid) addTally('被劫走', G.raided + ' 只');
+    if (def.good) addTally('误点乖猫', G.goodHit + ' 只');
     if (win) addTally('剩余时间奖励', '+' + timeBonus);
     addTally('总分', String(total), true);
     addTally('累计警务分', nextCareer + '（' + diffText + '）');
+    addTally('警衔', CFG.ranks[rankAfter].name);
+    if (endless) addTally('无尽最高逮捕', P.endless.caps + ' 只');
 
     elBestEnd.textContent = String(best);
     elBestStart.textContent = String(best);
     elCareerStart.textContent = String(nextCareer);
+    refreshRankUI();
 
-    if (win) AudioFX.win(); else AudioFX.lose();
+    if (win || endless) AudioFX.win(); else AudioFX.lose();
     buzz(win ? [20, 60, 20, 60] : 120);
 
-    window.setTimeout(function () {
-      elScreenStart.hidden = true;
-      elScreenEnd.hidden = false;
-      elOverlay.className = 'overlay';
-    }, 260);
+    window.setTimeout(function () { showScreen(elScreenEnd); }, 260);
   }
 
   function addTally(label, value, isSum) {
@@ -2499,21 +2745,96 @@
     AudioFX.resume();
     if (elBtnStart.disabled) return;
     if (!hints.help) { openHelp('first'); return; }
-    beginRound();
+    openLevels();
   }, false);
 
   elBtnAgain.addEventListener('click', function () {
     AudioFX.resume();
-    beginRound();
+    beginRound(curNo);
   }, false);
 
-  function beginRound() {
+  var curNo = 1;       // 当前关卡号，0 表示无尽
+  var endNext = -1;    // 结算页「下一关」要进的关卡号
+
+  function showScreen(el) {
+    elScreenStart.hidden = el !== elScreenStart;
+    elScreenEnd.hidden = el !== elScreenEnd;
+    elScreenHelp.hidden = el !== elScreenHelp;
+    elScreenLevels.hidden = el !== elScreenLevels;
+    elOverlay.className = 'overlay';
+  }
+
+  function beginRound(no) {
+    curNo = no;
     elOverlay.className = 'overlay away';
     window.setTimeout(function () {
       elScreenStart.hidden = true;
       elScreenEnd.hidden = true;
+      elScreenHelp.hidden = true;
+      elScreenLevels.hidden = true;
     }, 320);
-    startLevel(LEVELS[0]);
+    startLevel(levelDefFor(no));
+  }
+
+  /* ---------- 选关界面 ---------- */
+
+  function bindLevel(btn, no) {
+    btn.addEventListener('click', function () {
+      AudioFX.init();
+      AudioFX.resume();
+      if (canPlay(no).ok) beginRound(no);
+    }, false);
+  }
+
+  function buildLevelList() {
+    while (elLevelList.firstChild) elLevelList.removeChild(elLevelList.firstChild);
+    var order = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0];
+    for (var i = 0; i < order.length; i++) {
+      var no = order[i];
+      var def = no === 0 ? ENDLESS : LEVELS[no - 1];
+      var cp = canPlay(no);
+      var done = no === 0 ? P.endless.caps > 0 : P.cleared >= no;
+
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'lv' + (done ? ' done' : '') + (cp.ok ? '' : ' lock');
+      b.disabled = !cp.ok;
+
+      var num = document.createElement('span');
+      num.className = 'lv-no';
+      num.textContent = no === 0 ? '∞' : String(no);
+
+      var main = document.createElement('span');
+      main.className = 'lv-main';
+      var title = document.createElement('b');
+      title.className = 'lv-title';
+      title.textContent = def.title;
+      var sub = document.createElement('em');
+      sub.className = 'lv-sub';
+      sub.textContent = no === 0
+        ? '60 秒起步，每逮捕一只 +10 秒，越抓越难'
+        : '坏猫大王 ×' + def.target + ' · ' + fmtTime(def.duration) + (def.bonusTime ? ' · 每只 +' + def.bonusTime + ' 秒' : '');
+      var note = document.createElement('em');
+      note.className = 'lv-note';
+      if (!cp.ok) note.textContent = '未解锁：' + cp.reason;
+      else if (no === 0) note.textContent = P.endless.caps > 0 ? '最高逮捕 ' + P.endless.caps + ' 只 · ' + P.endless.score + ' 分' : '尚未挑战';
+      else note.textContent = done ? '已通关 · 最高 ' + (P.best[no] || 0) + ' 分' : '可出勤';
+
+      main.appendChild(title);
+      main.appendChild(sub);
+      main.appendChild(note);
+      b.appendChild(num);
+      b.appendChild(main);
+      bindLevel(b, no);
+      elLevelList.appendChild(b);
+    }
+  }
+
+  function openLevels() {
+    buildLevelList();
+    refreshRankUI();
+    showScreen(elScreenLevels);
+    elLevelList.scrollTop = 0;
   }
 
   /* ---------- 玩法说明（首次出勤必读，之后随时可开） ---------- */
@@ -2538,7 +2859,7 @@
   function closeHelp() {
     if (!hints.help) { hints.help = 1; saveHints(); }
     elScreenHelp.hidden = true;
-    if (helpFrom === 'first') { beginRound(); return; }
+    if (helpFrom === 'first') { openLevels(); return; }
     if (helpFrom === 'play') {
       G.state = 'playing';
       elOverlay.className = 'overlay away';
@@ -2552,6 +2873,14 @@
   elBtnRules.addEventListener('click', function () { openHelp('start'); }, false);
   elBtnRules2.addEventListener('click', function () { openHelp('end'); }, false);
   elBtnHelpDone.addEventListener('click', function () { AudioFX.resume(); closeHelp(); }, false);
+
+  elBtnLevelsBack.addEventListener('click', function () { showScreen(elScreenStart); }, false);
+  elBtnToLevels.addEventListener('click', function () { openLevels(); }, false);
+  elBtnNext.addEventListener('click', function () {
+    AudioFX.init();
+    AudioFX.resume();
+    if (endNext >= 0 && canPlay(endNext).ok) beginRound(endNext);
+  }, false);
 
   window.addEventListener('resize', function () { layout(); }, false);
   window.addEventListener('orientationchange', function () {
@@ -2590,10 +2919,10 @@
   drawIcons();
   elBestStart.textContent = String(loadBest());
   elCareerStart.textContent = String(loadCareer());
-  buildDots(LEVELS[0].target);
-  elLevelNo.textContent = '第 ' + LEVELS[0].no + ' 号';
-  elTarget.textContent = CFG.levelNames[3] + ' ×' + LEVELS[0].target;
+  showLevelHud(LEVELS[0]);
+  refreshRankUI();
   G.time = LEVELS[0].duration;
+  G.timeTotal = LEVELS[0].duration;
   syncHud();
   syncTools();
   syncLoadBtn();
