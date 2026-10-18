@@ -1178,8 +1178,8 @@
     if (!loadDone) {
       loadClock += dt;
       if (loadClock >= CFG.loadTimeout) loadDone = true;
-      syncLoadBtn();
     }
+    syncLoadBtn();
 
     // 生成
     if (G.state === 'idle' || G.state === 'playing') {
