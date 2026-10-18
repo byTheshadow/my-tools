@@ -43,12 +43,14 @@
   /* 文件可以不存在：缺哪个就退回现在的合成音效（背景音乐缺了就没有音乐）。 */
 
   var SND = {
-    bgm: 'assets/bgm_main.mp3',          // 普通关背景音乐（循环）
+    bgm: 'assets/vaitsez-gaming-gaming-music-607226.mp3',   // 背景音乐（循环）
     bgmBoss: 'assets/bgm_boss.mp3',      // 第 10 关与无尽的背景音乐（可选，缺了就用 bgm）
     arrest: 'assets/sfx_arrest.mp3',     // 逮捕坏猫大王
     alarm: 'assets/sfx_alarm.mp3',       // 劫狱警报
     win: 'assets/sfx_win.mp3',           // 通关
-    lose: 'assets/sfx_lose.mp3'          // 失败
+    lose: 'assets/sfx_lose.mp3',         // 失败
+    merge: 'assets/freesound_gamestudio-combine-special-394482.mp3',   // 合成升级
+    drop: 'assets/juniorsoundays-ui-sound-70-527837.mp3'               // 获得道具
   };
 
   /* ================= 配置 ================= */
@@ -574,12 +576,16 @@
     }
 
     function init() {
-      var sfxKeys = ['arrest', 'alarm', 'win', 'lose'];
+      var sfxKeys = ['arrest', 'alarm', 'win', 'lose', 'merge', 'drop'];
       for (var i = 0; i < sfxKeys.length; i++) {
         var k = sfxKeys[i];
-        var r1 = make(SND[k], false, CFG.sfxVolume);
-        var r2 = make(SND[k], false, CFG.sfxVolume);
-        if (r1 && r2) pools[k] = { list: [r1, r2], i: 0 };
+        var size = (k === 'merge' || k === 'drop') ? 3 : 2;    // 高频音效多备几个，连续触发不打断
+        var list = [];
+        for (var n = 0; n < size; n++) {
+          var r = make(SND[k], false, CFG.sfxVolume);
+          if (r) list.push(r);
+        }
+        if (list.length === size) pools[k] = { list: list, i: 0 };
       }
       var bk = ['bgm', 'bgmBoss'];
       for (var j = 0; j < bk.length; j++) {
@@ -589,7 +595,7 @@
     }
 
     // 播放一个音效。返回 true 表示由文件负责（含静音时），false 表示没有文件、请用合成音效。
-    function sfx(key) {
+    function sfx(key, rate) {
       var pool = pools[key];
       if (!pool) return false;
       var n = pool.list.length, rec = null;
@@ -600,6 +606,12 @@
       if (!rec) return false;
       if (!st.sfx) return true;
       rewind(rec.a);
+      // 连锁时加快播放，音调随之升高（浏览器支持才有升调效果）
+      try {
+        rec.a.preservesPitch = false;
+        rec.a.webkitPreservesPitch = false;
+        rec.a.playbackRate = rate || 1;
+      } catch (e) {}
       play(rec.a);
       return true;
     }
@@ -738,6 +750,7 @@
       miss: function () { tone(720, 0.11, 'sine', 0.15, 360); noise(0.05, 0.08); },
       release: function () { tone(480, 0.2, 'triangle', 0.2, 900); },
       merge: function (lv, chain) {
+        if (Sound.sfx('merge', 1 + 0.07 * (Math.min(chain, 6) - 1))) return;
         var base = 440 * Math.pow(1.26, lv - 1) * Math.pow(1.12, Math.min(chain, 5) - 1);
         tone(base, 0.16, 'triangle', 0.3, base * 1.5);
         noise(0.06, 0.12);
@@ -759,6 +772,12 @@
         if (Sound.sfx('lose')) return;
         tone(330, 0.5, 'sine', 0.22, 150);
         tone(220, 0.6, 'sine', 0.18, 110, 0.08);
+      },
+      // 掉落 / 领到道具：有 MP3 用文件，没有就用 item 的合成音
+      drop: function () {
+        if (Sound.sfx('drop')) return;
+        tone(660, 0.1, 'triangle', 0.24, 990);
+        tone(990, 0.16, 'triangle', 0.2, 0, 0.08);
       },
       // ---- v0.4 ----
       item: function () {
@@ -1706,7 +1725,7 @@
     G.inv[key]++;
     floatText(x, Math.max(14, y), '获得 ' + ITEM_NAMES[key], COLOR.mint, 15);
     burst(x, y, 8, [COLOR.mint, COLOR.amber, COLOR.paper], 130);
-    AudioFX.item();
+    AudioFX.drop();
     buzz(16);
     pulseTool(key);
     syncTools();
