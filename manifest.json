@@ -1,0 +1,24 @@
+{
+  "name": "抓坏猫",
+  "short_name": "抓坏猫",
+  "version": "1.0.0",
+  "description": "手机竖屏解压小游戏：扮演夜班巡警捕捉传送带上的坏猫进押解笼，凑齐三只升级合成，盖章逮捕坏猫大王。",
+  "disclaimer": "本游戏为虚构卡通趣味益智小游戏，游戏内容仅为虚拟捕捉卡通小猫，没有任何真实动物在游戏制作或玩法设定中受到伤害。",
+  "developer": {
+    "role": "Creator"
+  },
+  "licenses_and_assets": {
+    "images": {
+      "status": "AI-Generated",
+      "statement": "游戏中出现的所有视觉图像、角色形象（包含乖猫、坏小奶猫、暴走猫、坏猫大王）、道具图标及场景素材均由作者使用 AI 工具生成，完全拥有合法使用与发布权利，不存在第三方版权侵权争议。"
+    },
+    "audio": {
+      "status": "Royalty-Free / Procedurally Synthesized",
+      "statement": "游戏中所有交互音效（抓捕、合成、警报、盖章、连锁升级等）均为本地 Web Audio API 振荡器实时程序化合成，无任何外置录音或商业音频文件引用，完全免版权（Royalty-Free）。"
+    },
+    "code": {
+      "status": "Original",
+      "statement": "纯本地前端原生开发，无任何外部 CDN 依赖及第三方追踪代码。"
+    }
+  }
+}
