@@ -1,4 +1,13 @@
-/* 抓坏猫 v0.5.1
+/* 抓坏猫 v0.6
+ * v0.6：结算插图（胜利 / 失败 / 无尽收队三张图，缺文件自动隐藏并退回纯文字结算）、
+ *       难度曲线调整——传送带整体提速 ~15%，合成所需数量随关卡从 3 只升到 4、5 只，
+ *       第 10 关坏猫大王目标数升到 4 只；新增判负条件——漏网坏猫、误点乖猫达到
+ *       关卡设定的上限会直接判负，数值随关卡收紧，无尽值班不启用这两条。
+ *       部署平台不支持音频文件，SND 全部留空，退回代码现场合成音效。
+ *
+ * 以下为 v0.5.1 记录：
+ *
+ * 抓坏猫 v0.5.1
  * v0.5.1：积分调整（分数线 6000 / 15000、时间奖励 ×4 封顶 300、重复通关累计分减半）、
  *         结算页得分构成、音频接口（MP3 可选，缺文件退回合成音效）、音乐 / 音效静音按钮。
  * v0.5：关卡表 1-10、警衔解锁、选关界面、进度存档、无尽值班、难度随关卡递增。
@@ -23,30 +32,31 @@
   /* ================= 素材表 ================= */
   /* 改图只改这里。路径按仓库里的实际文件名一字不差地写。 */
 
-    var ART = {
+  var ART = {
     bg: 'assets/bg.png',
     baby: [
-      'assets/cat_bad_baby_black.png.png',   // 颜色 0
-      'assets/cat_bad_baby_orange.png.png'   // 颜色 1
+      'assets/cat_bad_baby_black.png.jpg',   // 颜色 0
+      'assets/cat_bad_baby_orange.png.jpg'   // 颜色 1
     ],
-    berserk: 'assets/cat_bad_berserk.png.png',
-    boss: 'assets/cat_bad_boss.png.png',
+    berserk: 'assets/cat_bad_berserk.png.jpg',
+    boss: 'assets/cat_bad_boss.png.jpg',
     good: [
-      'assets/cat_good_1.png.png',
-      'assets/cat_good_2.png.png'
+      'assets/cat_good_1.png.jpg',
+      'assets/cat_good_2.png.jpg'
     ],
-    itemCatnip: 'assets/item_catnip.png.png',
-    itemSlot: 'assets/item_slot.png.png',
+    itemCatnip: 'assets/item_catnip.png.jpg',
+    itemSlot: 'assets/item_slot.png.jpg',
     endWin: 'assets/end_win.png',
     endLose: 'assets/end_lose.png',
     endEndless: 'assets/end_endless.png'
   };
-  
+
   /* ---------- 音频文件表（v0.5.1） ---------- */
-  /* 路径留空 '' 表示没有这个文件：不会发请求，直接用合成音效。有了文件再把路径填上。 */
+  /* 路径留空 '' 表示没有这个文件：不会发请求，直接用合成音效。有了文件再把路径填上。
+   * v0.6：部署平台不支持音频格式，全部留空，退回 AudioFX 现场合成音效。 */
 
   var SND = {
-    bgm: '',          // 部署平台不支持 mp3，全部退回代码合成音效（见 AudioFX）
+    bgm: '',
     bgmBoss: '',
     arrest: '',
     alarm: '',
@@ -60,7 +70,6 @@
 
   var CFG = {
     cageSlots: 7,
-    mergeNeed: 3,
     maxLevel: 3,
     levelNames: ['', '坏小奶猫', '暴走猫', '坏猫大王'],
     mergeCooldown: 0.16,
@@ -128,7 +137,7 @@
     colors: 2,
     spawnEvery: 1.05,
     spawnJitter: 0.35,
-    crossTime: 5.4,
+    crossTime: 4.6,       // 原 5.4，v0.6 整体提速 ~15%
     good: false,         // 乖猫
     goodRate: 0.2,
     miss: false,         // 扑空与警觉度
@@ -139,6 +148,9 @@
     penaltyRaid: 20,     // 劫狱成功扣分
     missMul: 1,          // 扑空率倍数
     pityAfter: 2,        // 连续扑空几次后必中
+    mergeNeed: 3,         // 合成要凑几只
+    escapeFailAt: 10,     // 漏网达到这个数就判负；0 = 不启用
+    goodHitFailAt: 0,     // 误点乖猫达到这个数就判负；0 = 不启用
     endless: false,
     title: ''
   };
@@ -162,27 +174,29 @@
 
   var ALL_ITEMS = ['catnip', 'net', 'slot'];
   var FULL = { good: true, miss: true, raid: true };
-  var TIER2 = mix(FULL, { goodRate: 0.22, penaltyGood: 20, penaltyRaid: 30, missMul: 1.15 });          // 第 4–6 关
+  var TIER2 = mix(FULL, { goodRate: 0.22, penaltyGood: 20, penaltyRaid: 30, missMul: 1.15, escapeFailAt: 8, goodHitFailAt: 3 });          // 第 4–6 关
   var TIER3 = mix(FULL, { goodRate: 0.26, penaltyGood: 25, penaltyRaid: 40, missMul: 1.3,
-                          pityAfter: 3, crossTime: 4.6, spawnEvery: 0.95 });                              // 第 7–9 关
+                          pityAfter: 3, crossTime: 3.9, spawnEvery: 0.95,
+                          mergeNeed: 4, escapeFailAt: 6, goodHitFailAt: 2 });                              // 第 7–9 关
   var TIER4 = mix(FULL, { goodRate: 0.3, penaltyGood: 35, penaltyRaid: 50, missMul: 1.5,
-                          pityAfter: 3, crossTime: 4.2, spawnEvery: 0.9, drops: ALL_ITEMS, crate: true }); // 第 10 关及无尽
+                          pityAfter: 3, crossTime: 3.6, spawnEvery: 0.9, drops: ALL_ITEMS, crate: true,
+                          mergeNeed: 5, escapeFailAt: 5, goodHitFailAt: 1 }); // 第 10 关及无尽
 
   var LEVELS = [
     lv(1, 1, { title: '教学：只管抓猫' }),
     lv(2, 1, { title: '加入乖猫', good: true }),
     lv(3, 1, { title: '加入扑空与警觉度', good: true, miss: true }),
     lv(4, 2, mix(TIER2, { title: '加入劫狱与别捣蛋' })),
-    lv(5, 2, mix(TIER2, { title: '传送带加速', crossTime: 5.0 })),
-    lv(6, 2, mix(TIER2, { title: '合成会掉落猫薄荷', crossTime: 5.0, drops: ['catnip'] })),
+    lv(5, 2, mix(TIER2, { title: '传送带加速', crossTime: 4.3 })),
+    lv(6, 2, mix(TIER2, { title: '合成会掉落猫薄荷', crossTime: 4.3, drops: ['catnip'] })),
     lv(7, 2, mix(TIER3, { title: '加入大网', drops: ['catnip', 'net'] })),
     lv(8, 3, mix(TIER3, { title: '加入加格', drops: ALL_ITEMS })),
     lv(9, 3, mix(TIER3, { title: '传送带出补给箱', drops: ALL_ITEMS, crate: true })),
-    lv(10, 3, mix(TIER4, { title: 'Boss 关：全机制，难度拉满' }))
+    lv(10, 4, mix(TIER4, { title: 'Boss 关：全机制，难度拉满' }))
   ];
 
-  // 无尽值班：从第 10 关的难度起步，每逮捕一只再加一档
-  var ENDLESS = mix(LEVELS[9], { no: 0, target: Infinity, duration: 60, bonusTime: CFG.bonusTime, endless: true, title: '无尽值班' });
+  // 无尽值班：从第 10 关的难度起步，每逮捕一只再加一档；不启用漏网 / 误点判负
+  var ENDLESS = mix(LEVELS[9], { no: 0, target: Infinity, duration: 60, bonusTime: CFG.bonusTime, endless: true, title: '无尽值班', escapeFailAt: 0, goodHitFailAt: 0 });
 
   function levelDefFor(no) {
     return mix(no === 0 ? ENDLESS : LEVELS[no - 1], {});
@@ -190,7 +204,7 @@
 
   function applyEndless() {
     var t = G.captured, d = G.level;
-    d.crossTime = Math.max(3.0, ENDLESS.crossTime - 0.1 * t);
+    d.crossTime = Math.max(2.6, ENDLESS.crossTime - 0.1 * t);
     d.goodRate = Math.min(0.4, ENDLESS.goodRate + 0.01 * t);
     d.missMul = Math.min(2.0, ENDLESS.missMul + 0.03 * t);
     d.spawnEvery = Math.max(0.65, ENDLESS.spawnEvery - 0.02 * t);
@@ -513,6 +527,7 @@
     for (var g = 0; g < ART.good.length; g++) loadPic(ART.good[g]);
     loadPic(ART.itemCatnip);
     loadPic(ART.itemSlot);
+    // 结算插图：不计入开场加载进度，后台预热即可，<img> 自己的 onerror 负责兜底
     new window.Image().src = ART.endWin;
     new window.Image().src = ART.endLose;
     new window.Image().src = ART.endEndless;
@@ -893,6 +908,7 @@
     goodHit: 0,
     missTotal: 0,
     released: 0,
+    failReason: '',           // v0.6：判负原因，'' = 超时，'escape' = 漏网超限，'goodHit' = 误点超限
 
     // v0.4
     inv: { catnip: 0, net: 0, slot: 0 },
@@ -903,7 +919,7 @@
     alarmBeep: 0,
     alarmFile: false,        // 警报音由 MP3 负责时，不再放合成的滴滴声
     raided: 0,               // 本局被劫走的猫数
-    freeze: 0,               // 猫薄荷剩余秒数
+    freeze: 0,                // 猫薄荷剩余秒数
     extra: 0,                // 加格剩余秒数
     shrink: false,           // 加格到期但那格还有猫，等玩家腾位
     crateTimer: 0,
@@ -990,6 +1006,7 @@
     G.goodHit = 0;
     G.missTotal = 0;
     G.released = 0;
+    G.failReason = '';
 
     showLevelHud(def);
     applyBar(def);
@@ -1026,7 +1043,7 @@
       elScore.textContent = String(G.score);
       lastScoreShown = G.score;
     }
-    elEscape.textContent = String(G.escaped);
+    elEscape.textContent = G.level.escapeFailAt ? (G.escaped + '/' + G.level.escapeFailAt) : String(G.escaped);
 
     var leakTxt = G.level.raid ? G.leak + '/' + CFG.raidEvery : '-';
     if (leakTxt !== lastLeakShown) {
@@ -1700,6 +1717,15 @@
     floatText(cat.x, Math.max(14, cy - L.catSize * 0.9), '乖猫！−' + G.level.penaltyGood, COLOR.stamp, 16);
     burst(cat.x, cy, 8, [COLOR.mint, COLOR.paper], 120);
     hintOnce('goodHit', '点到乖猫了：扣分，还要愣一下', 'warn');
+
+    if (G.level.goodHitFailAt) {
+      if (G.goodHit >= G.level.goodHitFailAt) {
+        G.failReason = 'goodHit';
+        finish(false);
+      } else {
+        toast('误点乖猫 ' + G.goodHit + '/' + G.level.goodHitFailAt + '，再错 ' + (G.level.goodHitFailAt - G.goodHit) + ' 次就失败', 'warn', 1.8);
+      }
+    }
   }
 
   function onMiss(cat, cy) {
@@ -2063,28 +2089,30 @@
   }
 
   function resolveOneMerge() {
-    // 先找 1 级：同颜色凑 3
+    var need = G.level.mergeNeed;
+
+    // 先找 1 级：同颜色凑够
     for (var sp = 0; sp < BABY.length; sp++) {
       var hits = [];
       for (var i = 0; i < G.slots.length; i++) {
         var s = G.slots[i];
         if (canMerge(s) && s.lv === 1 && s.sp === sp) hits.push(i);
-        if (hits.length === CFG.mergeNeed) break;
+        if (hits.length === need) break;
       }
-      if (hits.length === CFG.mergeNeed) {
+      if (hits.length === need) {
         doMerge(hits, sp, 1);
         return true;
       }
     }
 
-    // 再找 2 级：不分颜色，任意 3 只
+    // 再找 2 级：不分颜色，凑够就行
     var hits2 = [];
     for (var j = 0; j < G.slots.length; j++) {
       var s2 = G.slots[j];
       if (canMerge(s2) && s2.lv === 2) hits2.push(j);
-      if (hits2.length === CFG.mergeNeed) break;
+      if (hits2.length === need) break;
     }
-    if (hits2.length === CFG.mergeNeed) {
+    if (hits2.length === need) {
       doMerge(hits2, G.slots[hits2[0]].sp, 2);
       return true;
     }
@@ -2230,6 +2258,10 @@
             toast('跑掉一只', 'warn');
           }
           onLeak();
+          if (G.level.escapeFailAt && G.escaped >= G.level.escapeFailAt) {
+            G.failReason = 'escape';
+            finish(false);
+          }
         }
       }
     }
@@ -2542,13 +2574,15 @@
       drawCat(ctx, xs[i], y, mini, 1, i + 1, 0, 1);
     }
 
+    var mn = G.level.mergeNeed;
+
     ctx.globalAlpha = 0.6;
     ctx.fillStyle = COLOR.dim;
     ctx.font = '600 11px -apple-system, "PingFang SC", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('凑 3', (xs[0] + xs[1]) / 2, y + 2);
-    ctx.fillText('凑 3', (xs[1] + xs[2]) / 2, y + 2);
+    ctx.fillText('凑 ' + mn, (xs[0] + xs[1]) / 2, y + 2);
+    ctx.fillText('凑 ' + mn, (xs[1] + xs[2]) / 2, y + 2);
 
     ctx.globalAlpha = 0.45;
     ctx.font = '600 10px -apple-system, "PingFang SC", sans-serif';
@@ -2560,8 +2594,8 @@
     ctx.globalAlpha = 0.5;
     ctx.fillStyle = COLOR.dim;
     ctx.font = '600 10px -apple-system, "PingFang SC", sans-serif';
-    ctx.fillText('坏小奶猫要同颜色凑 3 只', cx, y + mini * 1.38);
-    ctx.fillText('暴走猫不分颜色，凑 3 只就行', cx, y + mini * 1.38 + 14);
+    ctx.fillText('坏小奶猫要同颜色凑 ' + mn + ' 只', cx, y + mini * 1.38);
+    ctx.fillText('暴走猫不分颜色，凑 ' + mn + ' 只就行', cx, y + mini * 1.38 + 14);
     ctx.restore();
   }
 
@@ -2810,6 +2844,7 @@
     elEndArt.onerror = function () { elEndArt.hidden = true; };
     elEndArt.hidden = false;
     elEndArt.src = artSrc;
+
     // v0.5.1：时间奖励 ×4，封顶 300
     var timeBonus = win ? Math.min(CFG.timeBonusCap, Math.floor(G.time) * CFG.scoreTimeBonus) : 0;
     var total = G.score + timeBonus;
@@ -2857,8 +2892,19 @@
     } else {
       elVerdict.textContent = win ? '已结案' : '未结案';
       elVerdict.className = win ? 'verdict' : 'verdict miss';
-      elEndTitle.textContent = win ? '全部落网' : '时间到了';
-      note = win ? '坏猫大王已收押，剩下的同伙还在外面。' : '坏猫大王还逍遥法外，再蹲守一轮。';
+      if (win) {
+        elEndTitle.textContent = '全部落网';
+        note = '坏猫大王已收押，剩下的同伙还在外面。';
+      } else if (G.failReason === 'escape') {
+        elEndTitle.textContent = '放跑太多了';
+        note = '漏网的坏猫超过了上限，巡逻失败。';
+      } else if (G.failReason === 'goodHit') {
+        elEndTitle.textContent = '误抓乖猫太多了';
+        note = '连续点错乖猫，被投诉下岗了。';
+      } else {
+        elEndTitle.textContent = '时间到了';
+        note = '坏猫大王还逍遥法外，再蹲守一轮。';
+      }
     }
     if (record) note += ' 新纪录！';
     if (repeat) note += ' 这关已经通过，累计警务分只算 ' + Math.round(CFG.repeatRate * 100) + '%。';
@@ -3078,9 +3124,12 @@
       title.textContent = def.title;
       var sub = document.createElement('em');
       sub.className = 'lv-sub';
-      sub.textContent = no === 0
+      var subTxt = no === 0
         ? '60 秒起步，每逮捕一只 +10 秒，越抓越难'
         : '坏猫大王 ×' + def.target + ' · ' + fmtTime(def.duration) + (def.bonusTime ? ' · 每只 +' + def.bonusTime + ' 秒' : '');
+      if (def.escapeFailAt) subTxt += ' · 漏网上限 ' + def.escapeFailAt;
+      if (def.goodHitFailAt) subTxt += ' · 误点上限 ' + def.goodHitFailAt;
+      sub.textContent = subTxt;
       var note = document.createElement('em');
       note.className = 'lv-note';
       if (!cp.ok) note.textContent = '未解锁：' + cp.reason;
