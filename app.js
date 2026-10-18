@@ -23,20 +23,20 @@
   /* ================= 素材表 ================= */
   /* 改图只改这里。路径按仓库里的实际文件名一字不差地写。 */
 
-  var ART = {
+    var ART = {
     bg: 'assets/bg.png',
     baby: [
-      'assets/cat_bad_baby_black.png.jpg',   // 颜色 0
-      'assets/cat_bad_baby_orange.png.jpg'   // 颜色 1
+      'assets/cat_bad_baby_black.png.png',   // 颜色 0
+      'assets/cat_bad_baby_orange.png.png'   // 颜色 1
     ],
-    berserk: 'assets/cat_bad_berserk.png.jpg',
-    boss: 'assets/cat_bad_boss.png.jpg',
+    berserk: 'assets/cat_bad_berserk.png.png',
+    boss: 'assets/cat_bad_boss.png.png',
     good: [
-      'assets/cat_good_1.png.jpg',
-      'assets/cat_good_2.png.jpg'
+      'assets/cat_good_1.png.png',
+      'assets/cat_good_2.png.png'
     ],
-    itemCatnip: 'assets/item_catnip.png.jpg',
-        itemSlot: 'assets/item_slot.png.jpg',
+    itemCatnip: 'assets/item_catnip.png.png',
+    itemSlot: 'assets/item_slot.png.png',
     endWin: 'assets/end_win.png',
     endLose: 'assets/end_lose.png',
     endEndless: 'assets/end_endless.png'
