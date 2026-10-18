@@ -36,9 +36,12 @@
       'assets/cat_good_2.png.jpg'
     ],
     itemCatnip: 'assets/item_catnip.png.jpg',
-    itemSlot: 'assets/item_slot.png.jpg'
+        itemSlot: 'assets/item_slot.png.jpg',
+    endWin: 'assets/end_win.png',
+    endLose: 'assets/end_lose.png',
+    endEndless: 'assets/end_endless.png'
   };
-
+  
   /* ---------- 音频文件表（v0.5.1） ---------- */
   /* 路径留空 '' 表示没有这个文件：不会发请求，直接用合成音效。有了文件再把路径填上。 */
 
@@ -256,6 +259,7 @@
   var elEndTitle = $('endTitle');
   var elEndNote = $('endNote');
   var elTally = $('tally');
+  var elEndArt = $('endArt');
   var elScreenHelp = $('screenHelp');
   var elHelpBody = $('helpBody');
   var elBtnHelp = $('btnHelp');
@@ -509,6 +513,9 @@
     for (var g = 0; g < ART.good.length; g++) loadPic(ART.good[g]);
     loadPic(ART.itemCatnip);
     loadPic(ART.itemSlot);
+    new window.Image().src = ART.endWin;
+    new window.Image().src = ART.endLose;
+    new window.Image().src = ART.endEndless;
     if (pending === 0) loadDone = true;
   }
 
@@ -2797,6 +2804,12 @@
 
     var def = G.level;
     var endless = !!def.endless;
+
+    var artSrc = endless ? ART.endEndless : (win ? ART.endWin : ART.endLose);
+    elEndArt.className = 'end-art' + (endless ? ' endless' : (win ? ' win' : ' lose'));
+    elEndArt.onerror = function () { elEndArt.hidden = true; };
+    elEndArt.hidden = false;
+    elEndArt.src = artSrc;
     // v0.5.1：时间奖励 ×4，封顶 300
     var timeBonus = win ? Math.min(CFG.timeBonusCap, Math.floor(G.time) * CFG.scoreTimeBonus) : 0;
     var total = G.score + timeBonus;

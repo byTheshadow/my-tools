@@ -409,6 +409,22 @@ body {
 
 /* 结算 */
 
+.end-art {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  margin: 0 0 16px;
+  background: var(--ink-2);
+  border: 1px solid #243545;
+  border-top: 3px solid var(--steel-2);
+  border-radius: 2px;
+}
+
+.end-art.win { border-top-color: var(--amber); }
+.end-art.lose { border-top-color: var(--steel-2); }
+.end-art.endless { border-top-color: var(--mint); }
+
 .verdict {
   display: inline-block;
   margin-bottom: 18px;
@@ -485,6 +501,7 @@ body {
   .brand { font-size: 36px; margin-bottom: 14px; }
   .brief { margin-bottom: 18px; padding: 12px 14px; }
   .brief p { font-size: 13px; line-height: 1.6; }
+  .end-art { margin-bottom: 10px; }
 }
 
 /* ---------- v0.2：说明页、?按钮、次级按钮 ---------- */
