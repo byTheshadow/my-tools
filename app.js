@@ -1,4 +1,6 @@
-/* 抓坏猫 v0.5
+/* 抓坏猫 v0.5.1
+ * v0.5.1：积分调整（分数线 6000 / 15000、时间奖励 ×4 封顶 300、重复通关累计分减半）、
+ *         结算页得分构成、音频接口（MP3 可选，缺文件退回合成音效）、音乐 / 音效静音按钮。
  * v0.5：关卡表 1-10、警衔解锁、选关界面、进度存档、无尽值班、难度随关卡递增。
  *
  * 以下为 v0.4 记录：
@@ -8,7 +10,7 @@
  * 语法基线：ES2017 / Chrome 61
  *
  * v0.4 变化：
- *   1. 劫狱：每漏网 5 只坏猫拉警报，窗口内按「别捣蛋」才能拦住，否则被劫走一只并扣 20 分。
+ *   1. 劫狱：每漏网 5 只坏猫拉警报，窗口内按「别捣蛋」才能拦住，否则被劫走一只并扣分。
  *   2. 三个道具：猫薄荷（传送带停 4 秒）、大网（一键抓最多颜色）、加格（临时 +1 格 20 秒）。
  *   3. 合成有概率掉道具；传送带每约 30 秒出现补给箱；背包每种上限 2。
  *   4. 底部道具栏（DOM 按钮）。
@@ -37,6 +39,18 @@
     itemSlot: 'assets/item_slot.png.jpg'
   };
 
+  /* ---------- 音频文件表（v0.5.1） ---------- */
+  /* 文件可以不存在：缺哪个就退回现在的合成音效（背景音乐缺了就没有音乐）。 */
+
+  var SND = {
+    bgm: 'assets/bgm_main.mp3',          // 普通关背景音乐（循环）
+    bgmBoss: 'assets/bgm_boss.mp3',      // 第 10 关与无尽的背景音乐（可选，缺了就用 bgm）
+    arrest: 'assets/sfx_arrest.mp3',     // 逮捕坏猫大王
+    alarm: 'assets/sfx_alarm.mp3',       // 劫狱警报
+    win: 'assets/sfx_win.mp3',           // 通关
+    lose: 'assets/sfx_lose.mp3'          // 失败
+  };
+
   /* ================= 配置 ================= */
 
   var CFG = {
@@ -50,7 +64,9 @@
     scoreCatch: 5,
     scoreMerge: 60,
     scoreCapture: 500,
-    scoreTimeBonus: 10,
+    scoreTimeBonus: 4,               // v0.5.1：剩余秒数 × 4（原 × 10）
+    timeBonusCap: 300,               // v0.5.1：时间奖励封顶
+    repeatRate: 0.5,                 // v0.5.1：已通关的关卡再通关，累计警务分只拿这个比例
     penaltyGood: 15,                 // 误点乖猫扣分
     lockGood: 0.4,                   // 误点乖猫后的"愣住"时间（秒）
     // 警觉度 0 = 头上没有感叹号（一定抓得住）；1/2/3 = 对应个数的感叹号
@@ -83,11 +99,17 @@
     bonusTime: 10,                   // 目标 2 只以上的关卡与无尽：每逮捕一只（最后一只除外）加时
     progressKey: 'zhuahuaimao.progress.v1',
     // 警衔：按历史最高累计警务分算；maxLevel 是该警衔能进的最高关卡
+    // v0.5.1：分数线 3000/9000 → 6000/15000
     ranks: [
-      { name: '见习鱼干保护者', need: 0,    maxLevel: 3 },
-      { name: '正式鱼干守护官', need: 3000, maxLevel: 6 },
-      { name: '首席鱼干守护长', need: 9000, maxLevel: 999 }
+      { name: '见习鱼干保护者', need: 0,     maxLevel: 3 },
+      { name: '正式鱼干守护官', need: 6000,  maxLevel: 6 },
+      { name: '首席鱼干守护长', need: 15000, maxLevel: 999 }
     ],
+
+    // ---- v0.5.1：音频 ----
+    audioKey: 'zhuahuaimao.audio.v1',
+    bgmVolume: 0.35,
+    sfxVolume: 0.9,
 
     storeKey: 'zhuahuaimao.best.v1',
     careerKey: 'zhuahuaimao.career.v1',
@@ -247,6 +269,8 @@
   var elBtnNext = $('btnNext');
   var elBtnToLevels = $('btnToLevels');
   var elRankStart = $('rankStart');
+  var elBtnMusic = $('btnMusic');
+  var elBtnSfx = $('btnSfx');
 
   // 道具栏：三个道具 + 别捣蛋
   var TOOL = {
@@ -501,11 +525,161 @@
     return picOf(ART.good[v % ART.good.length]);
   }
 
+  /* ================= 音频文件（v0.5.1，MP3 可选） ================= */
+  /* 只用 <audio> 元素，不用 fetch。文件缺失或加载失败就返回 false，调用方退回合成音效。
+   * 音乐与音效各有一个开关，存在 localStorage。 */
+
+  var Sound = (function () {
+    var st = { music: true, sfx: true };
+    var pools = {};          // 音效：key -> { list: [rec, rec], i: 0 }
+    var bgms = {};           // 音乐：key -> rec
+    var cur = null;          // 当前音乐
+    var held = false;        // 暂停（说明页 / 切后台）期间不让音乐响
+
+    try {
+      var raw = window.localStorage.getItem(CFG.audioKey);
+      var o = raw ? JSON.parse(raw) : null;
+      if (o && typeof o === 'object') {
+        st.music = o.music !== false;
+        st.sfx = o.sfx !== false;
+      }
+    } catch (e) {}
+
+    function save() {
+      try { window.localStorage.setItem(CFG.audioKey, JSON.stringify(st)); } catch (e) {}
+    }
+
+    function make(path, loop, vol) {
+      if (!path || !window.Audio) return null;
+      var a;
+      try { a = new window.Audio(); } catch (e) { return null; }
+      var rec = { a: a, bad: false };
+      a.addEventListener('error', function () { rec.bad = true; }, false);
+      a.preload = 'auto';
+      a.loop = !!loop;
+      a.volume = vol;
+      a.src = path;
+      return rec;
+    }
+
+    function play(a) {
+      try {
+        var p = a.play();
+        if (p && p.catch) p.catch(function () {});
+      } catch (e) {}
+    }
+
+    function rewind(a) {
+      try { a.currentTime = 0; } catch (e) {}
+    }
+
+    function init() {
+      var sfxKeys = ['arrest', 'alarm', 'win', 'lose'];
+      for (var i = 0; i < sfxKeys.length; i++) {
+        var k = sfxKeys[i];
+        var r1 = make(SND[k], false, CFG.sfxVolume);
+        var r2 = make(SND[k], false, CFG.sfxVolume);
+        if (r1 && r2) pools[k] = { list: [r1, r2], i: 0 };
+      }
+      var bk = ['bgm', 'bgmBoss'];
+      for (var j = 0; j < bk.length; j++) {
+        var rec = make(SND[bk[j]], true, CFG.bgmVolume);
+        if (rec) bgms[bk[j]] = rec;
+      }
+    }
+
+    // 播放一个音效。返回 true 表示由文件负责（含静音时），false 表示没有文件、请用合成音效。
+    function sfx(key) {
+      var pool = pools[key];
+      if (!pool) return false;
+      var n = pool.list.length, rec = null;
+      for (var t = 0; t < n; t++) {
+        var c = pool.list[(pool.i + t) % n];
+        if (!c.bad) { rec = c; pool.i = (pool.i + t + 1) % n; break; }
+      }
+      if (!rec) return false;
+      if (!st.sfx) return true;
+      rewind(rec.a);
+      play(rec.a);
+      return true;
+    }
+
+    function stopSfx(key) {
+      var pool = pools[key];
+      if (!pool) return;
+      for (var i = 0; i < pool.list.length; i++) {
+        try { pool.list[i].a.pause(); } catch (e) {}
+        rewind(pool.list[i].a);
+      }
+    }
+
+    function stopAllSfx() {
+      for (var k in pools) if (pools.hasOwnProperty(k)) stopSfx(k);
+    }
+
+    function startMusic(key) {
+      stopMusic();
+      var rec = bgms[key];
+      if (!rec || rec.bad) rec = bgms.bgm;
+      if (!rec || rec.bad) { cur = null; return; }
+      cur = rec;
+      held = false;
+      rewind(cur.a);
+      if (st.music) play(cur.a);
+    }
+
+    function stopMusic() {
+      if (cur) {
+        try { cur.a.pause(); } catch (e) {}
+        rewind(cur.a);
+      }
+      cur = null;
+    }
+
+    function pauseMusic() {
+      held = true;
+      if (cur) { try { cur.a.pause(); } catch (e) {} }
+    }
+
+    function resumeMusic() {
+      held = false;
+      if (cur && st.music) play(cur.a);
+    }
+
+    function setMusic(on) {
+      st.music = !!on;
+      save();
+      if (!cur) return;
+      if (st.music) { if (!held) play(cur.a); }
+      else { try { cur.a.pause(); } catch (e) {} }
+    }
+
+    function setSfx(on) {
+      st.sfx = !!on;
+      save();
+      if (!st.sfx) stopAllSfx();
+    }
+
+    return {
+      init: init,
+      sfx: sfx,
+      stopSfx: stopSfx,
+      startMusic: startMusic,
+      stopMusic: stopMusic,
+      pauseMusic: pauseMusic,
+      resumeMusic: resumeMusic,
+      setMusic: setMusic,
+      setSfx: setSfx,
+      state: function () { return st; }
+    };
+  })();
+
   /* ================= 音效（WebAudio 现场合成） ================= */
 
   var AudioFX = (function () {
     var ac = null;
     var master = null;
+    var muted = false;
 
     function init() {
       if (ac) return;
@@ -524,7 +698,7 @@
     }
 
     function tone(freq, dur, type, vol, slideTo, delay) {
-      if (!ac) return;
+      if (!ac || muted) return;
       var t0 = ac.currentTime + (delay || 0);
       var osc = ac.createOscillator();
       var g = ac.createGain();
@@ -541,7 +715,7 @@
     }
 
     function noise(dur, vol) {
-      if (!ac) return;
+      if (!ac || muted) return;
       var n = Math.floor(ac.sampleRate * dur);
       var buf = ac.createBuffer(1, n, ac.sampleRate);
       var d = buf.getChannelData(0);
@@ -557,6 +731,7 @@
     return {
       init: init,
       resume: resume,
+      setMute: function (m) { muted = !!m; },
       grab: function () { tone(520, 0.08, 'triangle', 0.26, 760); },
       land: function () { tone(300, 0.07, 'sine', 0.2); },
       deny: function () { tone(170, 0.14, 'square', 0.16, 110); },
@@ -568,6 +743,7 @@
         noise(0.06, 0.12);
       },
       capture: function () {
+        if (Sound.sfx('arrest')) return;
         noise(0.12, 0.3);
         tone(392, 0.4, 'triangle', 0.3, 0, 0);
         tone(523, 0.4, 'triangle', 0.26, 0, 0.07);
@@ -575,10 +751,12 @@
       },
       escape: function () { tone(240, 0.18, 'sine', 0.14, 160); },
       win: function () {
+        if (Sound.sfx('win')) return;
         var seq = [523, 659, 784, 1047];
         for (var i = 0; i < seq.length; i++) tone(seq[i], 0.35, 'triangle', 0.26, 0, i * 0.1);
       },
       lose: function () {
+        if (Sound.sfx('lose')) return;
         tone(330, 0.5, 'sine', 0.22, 150);
         tone(220, 0.6, 'sine', 0.18, 110, 0.08);
       },
@@ -663,6 +841,7 @@
     time: 0,
     timeTotal: 90,           // 时间条的满格值（加时后会变大）
     score: 0,
+    sc: { catch: 0, merge: 0, capture: 0, pen: 0 },   // v0.5.1：得分构成（结算页用）
     captured: 0,
     escaped: 0,
     cats: [],
@@ -696,6 +875,7 @@
     alarm: 0,                // 警报剩余窗口（秒）
     alarmDur: 0,
     alarmBeep: 0,
+    alarmFile: false,        // 警报音由 MP3 负责时，不再放合成的滴滴声
     raided: 0,               // 本局被劫走的猫数
     freeze: 0,               // 猫薄荷剩余秒数
     extra: 0,                // 加格剩余秒数
@@ -706,7 +886,9 @@
   };
 
   function addScore(n) {
-    G.score = Math.max(0, G.score + n);
+    var before = G.score;
+    G.score = Math.max(0, before + n);
+    if (n < 0) G.sc.pen += before - G.score;     // 记实际扣掉的分（最低扣到 0）
   }
 
   function resetSlots() {
@@ -722,6 +904,7 @@
     G.alarm = 0;
     G.alarmDur = 0;
     G.alarmBeep = 0;
+    G.alarmFile = false;
     G.raided = 0;
     G.freeze = 0;
     G.extra = 0;
@@ -758,6 +941,7 @@
     G.time = def.duration;
     G.timeTotal = def.duration;
     G.score = 0;
+    G.sc = { catch: 0, merge: 0, capture: 0, pen: 0 };
     G.captured = 0;
     G.escaped = 0;
     G.cats = [];
@@ -786,6 +970,7 @@
     syncHud();
     syncTools();
     drawIcons();
+    Sound.startMusic(def.endless || def.no === 10 ? 'bgmBoss' : 'bgm');
     toast(def.endless ? '无尽值班：抓得越多越难' : '第 ' + def.no + ' 号：' + def.title, 'good', 2.4);
   }
 
@@ -1422,6 +1607,7 @@
       t: -(delay || 0) / CFG.flyDur, dur: CFG.flyDur
     });
     G.score += CFG.scoreCatch;
+    G.sc.catch += CFG.scoreCatch;
     burst(cat.x, cy, 6, ['#F2B134', '#EDE6D6'], 110);
   }
 
@@ -1647,10 +1833,11 @@
     G.alarmDur = rand(CFG.raidMin, CFG.raidMax);
     G.alarm = G.alarmDur;
     G.alarmBeep = 0;
+    G.alarmFile = Sound.sfx('alarm');          // 有警报 MP3 就放文件，没有就用合成的滴滴声
     if (!hintOnce('alarm', '劫狱警报！快按底部「别捣蛋」', 'warn')) {
       toast('劫狱警报！快按「别捣蛋」', 'warn', G.alarmDur);
     }
-    AudioFX.beep();
+    if (!G.alarmFile) AudioFX.beep();
     buzz([40, 40, 40]);
   }
 
@@ -1683,6 +1870,7 @@
       }
       G.stopLeft--;
       G.alarm = 0;
+      Sound.stopSfx('alarm');
       toast('拦住了！', 'good');
       AudioFX.block();
       buzz(20);
@@ -1898,6 +2086,7 @@
     G.chain++;
     var gain = CFG.scoreMerge * newLv * G.chain;
     G.score += gain;
+    G.sc.merge += gain;
 
     burst(to.x, to.y, 16, [skinOf(newLv, sp).coat, COLOR.amber, COLOR.paper], 190);
     var label = G.chain > 1 ? '连锁 ×' + G.chain + '  +' + gain : '+' + gain;
@@ -1926,6 +2115,7 @@
     G.slots[i] = null;
     G.captured++;
     G.score += CFG.scoreCapture;
+    G.sc.capture += CFG.scoreCapture;
 
     G.stamp = { t: 0, dur: 1.0 };
     G.shake = 0.42;
@@ -1952,6 +2142,7 @@
     if (G.captured >= G.level.target) {
       G.state = 'ending';          // 冻结计时与生成，让庆祝动画放完
       G.alarm = 0;
+      Sound.stopSfx('alarm');
       window.setTimeout(function () { finish(true); }, 950);
     }
   }
@@ -2073,9 +2264,13 @@
       if (G.alarm > 0) {
         G.alarm -= dt;
         G.alarmBeep -= dt;
-        if (G.alarmBeep <= 0) { G.alarmBeep = 0.3; AudioFX.beep(); }
+        if (G.alarmBeep <= 0) {
+          G.alarmBeep = 0.3;
+          if (!G.alarmFile) AudioFX.beep();
+        }
         if (G.alarm <= 0) {
           G.alarm = 0;
+          Sound.stopSfx('alarm');
           raidSucceeds();
         }
       }
@@ -2578,18 +2773,26 @@
     if (G.state !== 'playing' && G.state !== 'ending') return;
     G.state = 'over';
     G.alarm = 0;
+    Sound.stopMusic();
+    Sound.stopSfx('alarm');
 
     var def = G.level;
     var endless = !!def.endless;
-    var timeBonus = win ? Math.floor(G.time) * CFG.scoreTimeBonus : 0;
+    // v0.5.1：时间奖励 ×4，封顶 300
+    var timeBonus = win ? Math.min(CFG.timeBonusCap, Math.floor(G.time) * CFG.scoreTimeBonus) : 0;
     var total = G.score + timeBonus;
 
     var best = loadBest();
     if (total > best) { best = total; saveBest(best); }
 
     // 累计警务分：赢了加本局总分，输了扣 100；无尽只加不扣
+    // v0.5.1：已通关过的关卡再通关，只加 50%（本局显示的总分不变）
+    var repeat = !endless && win && P.cleared >= def.no;
     var career = loadCareer();
-    var gain = endless ? total : (win ? total : -CFG.losePenalty);
+    var gain;
+    if (endless) gain = total;
+    else if (win) gain = repeat ? Math.round(total * CFG.repeatRate) : total;
+    else gain = -CFG.losePenalty;
     var nextCareer = Math.max(0, career + gain);
     saveCareer(nextCareer);
     var diff = nextCareer - career;
@@ -2626,6 +2829,7 @@
       note = win ? '坏猫大王已收押，剩下的同伙还在外面。' : '坏猫大王还逍遥法外，再蹲守一轮。';
     }
     if (record) note += ' 新纪录！';
+    if (repeat) note += ' 这关已经通过，累计警务分只算 ' + Math.round(CFG.repeatRate * 100) + '%。';
     if (rankAfter > rankBefore) note += ' 升衔：「' + CFG.ranks[rankAfter].name + '」。';
 
     // 通关后：能进下一关就给「下一关」按钮，否则说明差什么
@@ -2645,16 +2849,20 @@
     elEndNote.textContent = note;
     elBtnAgain.textContent = endless ? '再来一班' : '再抓一次';
 
+    // v0.5.1：得分构成。先列分数来源，再列战况。
     while (elTally.firstChild) elTally.removeChild(elTally.firstChild);
-    addTally('抓捕得分', String(G.score));
-    addTally('逮捕坏猫大王', isFinite(def.target) ? G.captured + ' / ' + def.target : String(G.captured));
-    addTally('漏网坏猫', String(G.escaped));
-    if (def.raid) addTally('被劫走', G.raided + ' 只');
-    if (def.good) addTally('误点乖猫', G.goodHit + ' 只');
-    if (win) addTally('剩余时间奖励', '+' + timeBonus);
+    addTally('抓捕（每只 +' + CFG.scoreCatch + '）', '+' + G.sc.catch);
+    addTally('合成（含连锁）', '+' + G.sc.merge);
+    addTally('逮捕坏猫大王', '+' + G.sc.capture);
+    if (G.sc.pen > 0) addTally('扣分（误点、劫狱）', '−' + G.sc.pen);
+    if (win) addTally('剩余时间奖励', '+' + timeBonus + (timeBonus >= CFG.timeBonusCap ? '（已封顶）' : ''));
     addTally('总分', String(total), true);
     addTally('累计警务分', nextCareer + '（' + diffText + '）');
     addTally('警衔', CFG.ranks[rankAfter].name);
+    addTally('逮捕数', isFinite(def.target) ? G.captured + ' / ' + def.target : String(G.captured));
+    addTally('漏网坏猫', String(G.escaped));
+    if (def.raid) addTally('被劫走', G.raided + ' 只');
+    if (def.good) addTally('误点乖猫', G.goodHit + ' 只');
     if (endless) addTally('无尽最高逮捕', P.endless.caps + ' 只');
 
     elBestEnd.textContent = String(best);
@@ -2723,6 +2931,33 @@
     AudioFX.init();
     AudioFX.resume();
     useStop();
+  }, false);
+
+  // v0.5.1：音乐 / 音效开关
+  function syncSndBtns() {
+    var s = Sound.state();
+    elBtnMusic.className = 'hud-snd' + (s.music ? '' : ' off');
+    elBtnSfx.className = 'hud-snd' + (s.sfx ? '' : ' off');
+    elBtnMusic.setAttribute('aria-pressed', s.music ? 'true' : 'false');
+    elBtnSfx.setAttribute('aria-pressed', s.sfx ? 'true' : 'false');
+  }
+
+  elBtnMusic.addEventListener('click', function () {
+    AudioFX.init();
+    AudioFX.resume();
+    Sound.setMusic(!Sound.state().music);
+    syncSndBtns();
+    toast(Sound.state().music ? '音乐：开' : '音乐：关', null, 0.9);
+  }, false);
+
+  elBtnSfx.addEventListener('click', function () {
+    AudioFX.init();
+    AudioFX.resume();
+    var on = !Sound.state().sfx;
+    Sound.setSfx(on);
+    AudioFX.setMute(!on);
+    syncSndBtns();
+    toast(on ? '音效：开' : '音效：关', null, 0.9);
   }, false);
 
   var iconsDone = false;
@@ -2818,7 +3053,7 @@
       note.className = 'lv-note';
       if (!cp.ok) note.textContent = '未解锁：' + cp.reason;
       else if (no === 0) note.textContent = P.endless.caps > 0 ? '最高逮捕 ' + P.endless.caps + ' 只 · ' + P.endless.score + ' 分' : '尚未挑战';
-      else note.textContent = done ? '已通关 · 最高 ' + (P.best[no] || 0) + ' 分' : '可出勤';
+      else note.textContent = done ? '已通关 · 最高 ' + (P.best[no] || 0) + ' 分 · 再玩累计分减半' : '可出勤';
 
       main.appendChild(title);
       main.appendChild(sub);
@@ -2845,6 +3080,7 @@
     if (from === 'play') {
       if (G.state !== 'playing') return;
       G.state = 'paused';
+      Sound.pauseMusic();
       elToast.className = 'toast';
     }
     helpFrom = from;
@@ -2862,6 +3098,7 @@
     if (helpFrom === 'first') { openLevels(); return; }
     if (helpFrom === 'play') {
       G.state = 'playing';
+      Sound.resumeMusic();
       elOverlay.className = 'overlay away';
       return;
     }
@@ -2888,7 +3125,12 @@
   }, false);
 
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) last = 0;
+    if (document.hidden) {
+      last = 0;
+      Sound.pauseMusic();
+    } else if (G.state === 'playing') {
+      Sound.resumeMusic();
+    }
   }, false);
 
   /* ================= 主循环 ================= */
@@ -2908,6 +3150,9 @@
   /* ================= 启动 ================= */
 
   preload();
+  Sound.init();
+  AudioFX.setMute(!Sound.state().sfx);
+  syncSndBtns();
   if (!loadDone) {
     elBtnStart.disabled = true;
     elBtnStart.textContent = '素材加载中…';

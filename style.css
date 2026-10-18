@@ -742,3 +742,24 @@ body {
 @media (max-height: 620px) {
   .levels-body { max-height: 44vh; }
 }
+/* ---------- v0.5.1：音乐 / 音效开关、结算页滚动 ---------- */
+.hud-snd {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  margin-left: 8px;
+  padding: 0;
+  border: 1.5px solid var(--amber-dim);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--amber);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 25px;
+  text-align: center;
+  cursor: pointer;
+}
+.hud-snd:active { background: rgba(242,177,52,.18); }
+.hud-snd.off { border-color: var(--steel-2); color: #566472; text-decoration: line-through; }
+.tally { max-height: 38vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
