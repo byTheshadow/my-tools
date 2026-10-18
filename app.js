@@ -46,14 +46,14 @@
   /* 路径留空 '' 表示没有这个文件：不会发请求，直接用合成音效。有了文件再把路径填上。 */
 
   var SND = {
-    bgm: 'assets/vaitsez-gaming-gaming-music-607226.mp3',   // 背景音乐（循环）
-    bgmBoss: '',      // 第 10 关与无尽的背景音乐（可选，缺了就用 bgm）
-    arrest: '',     // 逮捕坏猫大王
-    alarm: '',       // 劫狱警报
-    win: '',           // 通关
-    lose: '',         // 失败
-    merge: 'assets/freesound_gamestudio-combine-special-394482.mp3',   // 合成升级
-    drop: 'assets/juniorsoundays-ui-sound-70-527837.mp3'               // 获得道具
+    bgm: '',          // 部署平台不支持 mp3，全部退回代码合成音效（见 AudioFX）
+    bgmBoss: '',
+    arrest: '',
+    alarm: '',
+    win: '',
+    lose: '',
+    merge: '',
+    drop: ''
   };
 
   /* ================= 配置 ================= */
