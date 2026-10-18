@@ -20,6 +20,8 @@
       <span class="file-sep"></span>
       <span class="file-tag">漏网</span>
       <span class="file-num" id="escapeNum">0</span>
+      <span class="file-tag file-gap">劫狱</span>
+      <span class="file-num" id="leakNum">0/5</span>
       <span class="file-grow"></span>
       <span class="file-tag">分数</span>
       <span class="file-num file-score" id="scoreNum">0</span>
@@ -42,6 +44,29 @@
   <main id="stage">
     <canvas id="game"></canvas>
   </main>
+
+  <nav id="bar" aria-label="道具栏">
+    <button type="button" class="tool empty" id="btnCatnip">
+      <canvas class="ico" id="icoCatnip" width="36" height="36"></canvas>
+      <span class="tool-name" id="nameCatnip">猫薄荷</span>
+      <span class="tool-cnt" id="cntCatnip">0</span>
+    </button>
+    <button type="button" class="tool empty" id="btnNet">
+      <canvas class="ico" id="icoNet" width="36" height="36"></canvas>
+      <span class="tool-name" id="nameNet">大网</span>
+      <span class="tool-cnt" id="cntNet">0</span>
+    </button>
+    <button type="button" class="tool empty" id="btnSlot">
+      <canvas class="ico" id="icoSlot" width="36" height="36"></canvas>
+      <span class="tool-name" id="nameSlot">加格</span>
+      <span class="tool-cnt" id="cntSlot">0</span>
+    </button>
+    <button type="button" class="tool tool-stop" id="btnStop">
+      <canvas class="ico" id="icoStop" width="36" height="36"></canvas>
+      <span class="tool-name" id="nameStop">别捣蛋</span>
+      <span class="tool-cnt" id="cntStop">2</span>
+    </button>
+  </nav>
 
   <div id="toast" class="toast"></div>
 
@@ -86,7 +111,8 @@
         <section class="rule">
           <h3><i>2</i>点击抓捕</h3>
           <p>点坏猫，它飞进底下的押解笼，住进<b>最左边的空格</b>。笼子一共 7 格。</p>
-          <p>可能会<b>扑空</b>。猫头上的 <b>!</b> 越多越警觉，越容易扑空。同一只猫连续扑空 2 次，第 3 次<b class="mint">必中</b>，这时 ! 会变成青色。</p>
+          <p>头上<b>有 !</b> 的猫可能会<b>扑空</b>，! 越多越警觉，越容易扑空。同一只猫连续扑空 2 次，第 3 次<b class="mint">必中</b>，这时 ! 会变成青色。</p>
+          <p>头上<b>没有 !</b> 的猫不会扑空，点中就是抓到。</p>
         </section>
 
         <section class="rule">
@@ -95,7 +121,7 @@
           <p class="eg"><span>坏小奶猫 ×3（同色）</span><em>→</em><span>暴走猫</span></p>
           <p><b>暴走猫</b>不分颜色，任意凑 3 只就合成。</p>
           <p class="eg"><span>暴走猫 ×3</span><em>→</em><span class="gold">坏猫大王</span></p>
-          <p class="no">位置不限，隔着别的猫也算。<br>黑色小奶猫 + 橘色小奶猫：颜色不同，不合。<br>坏小奶猫 + 暴走猫：等级不同，不合。</p>
+          <p class="no">位置不限，隔着别的猫也算。<br>两种颜色的小奶猫各一只：颜色不同，不合。<br>坏小奶猫 + 暴走猫：等级不同，不合。</p>
         </section>
 
         <section class="rule">
@@ -115,7 +141,27 @@
         </section>
 
         <section class="rule">
-          <h3><i>7</i>输赢与得分</h3>
+          <h3><i>7</i>劫狱与别捣蛋</h3>
+          <p>每有 <b>5 只</b>坏猫漏网（乖猫不算），监狱就会拉响警报，<b class="red">笼子闪红灯 1 到 2 秒</b>。顶部「劫狱」显示的就是进度。</p>
+          <p>红灯亮着时按底部的<b>别捣蛋</b>，就能拦住。没拦住，笼里会被劫走<b>一只</b>，还扣 20 分。</p>
+          <p>别捣蛋每局只有 <b>2 次</b>，平时误按不消耗；逮捕一只坏猫大王，回 1 次。笼子是空的就不会劫狱。</p>
+        </section>
+
+        <section class="rule">
+          <h3><i>8</i>三个道具</h3>
+          <p>每次合成有 12% 概率掉落一个道具，连锁到 3 必掉。每种最多存 2 个，存满的就不再掉。</p>
+          <p><b>猫薄荷</b>：传送带上所有猫停 4 秒，期间不出新猫，倒计时照走。</p>
+          <p><b>大网</b>：一键抓走传送带上<b>数量最多</b>那种颜色的坏小奶猫，一定抓中。笼子空位不够，就抓到装满为止，剩下的继续走。</p>
+          <p><b>加格</b>：笼子临时多 1 格，持续 20 秒。到期时那格里如果还有猫，要放走一只，或者合成腾出位置。</p>
+        </section>
+
+        <section class="rule">
+          <h3><i>9</i>补给箱</h3>
+          <p>传送带上约每 30 秒会走来一个<b>补给箱</b>，点它领一个随机道具。它不抓、不占格子，错过就没了。</p>
+        </section>
+
+        <section class="rule">
+          <h3><i>10</i>输赢与得分</h3>
           <p>限时内逮够目标数量的坏猫大王算赢，时间耗尽算输；笼满不算输。</p>
           <p>抓一只 +5，逮捕坏猫大王 +500，赢了再按剩余秒数 ×10 加分。赢了累计警务分增加，输了扣 100，最低扣到 0。</p>
         </section>
