@@ -88,6 +88,7 @@
       <button type="button" class="btn btn-ghost" id="btnRules">玩法说明</button>
       <p class="best">最高分 <span id="bestStart">0</span>　累计警务分 <span id="careerStart">0</span></p>
       <p class="best best-2">警衔 <span id="rankStart">见习鱼干保护者</span></p>
+            <p class="ver" id="verText"></p>
     </div>
 
     <div class="screen" id="screenEnd" hidden>
@@ -158,10 +159,12 @@
 
         <section class="rule">
           <h3><i>7</i>劫狱与别捣蛋</h3>
-          <p>每有 <b>5 只</b>坏猫漏网（乖猫不算），监狱就会拉响警报，<b class="red">笼子闪红灯 1 到 2 秒</b>。顶部「劫狱」显示的就是进度。</p>
+                    <p>每有若干只坏猫漏网（乖猫不算），监狱就会拉响警报，<b class="red">笼子闪红灯</b>。所需数量<b>随关卡变少</b>，从 5 只降到 3 只，警报窗口也会变短。顶部「劫狱」显示的就是进度。</p>
           <p>红灯亮着时按底部的<b>别捣蛋</b>，就能拦住。没拦住，笼里会被劫走<b>一只</b>，还要扣分（起步 20 分，越往后越多）。</p>
           <p>别捣蛋每局只有 <b>2 次</b>，平时误按不消耗；逮捕一只坏猫大王，回 1 次。笼子是空的就不会劫狱。</p>
+                    <p><b class="red">自己越狱</b>：第 5 关起，笼里的猫会随机一只开始抖动、闪红框，约 1 秒后自己跑掉并扣分。<b>点一下那只猫</b>可以安抚，合成或放走它也行。</p>
         </section>
+        
 
         <section class="rule">
           <h3><i>8</i>三个道具</h3>

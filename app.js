@@ -1,4 +1,10 @@
-/* 抓坏猫 v0.6
+/* 抓坏猫 v0.7
+ * v0.7：教程由 3 关并为 2 关（第 1 关抓猫＋乖猫，第 2 关扑空与警觉度），原第 4–10 关顺延为第 3–9 关，
+ *       第 10 关为新增的终极 Boss；传送带整体再提速、出猫更密；劫狱触发所需漏网数、警报窗口按关卡配置；
+ *       新增「猫自己越狱」机制（第 5 关起，点抖动的猫可安抚）；存档升级到 v2，旧存档自动迁移；
+ *       开始页显示版本号与更新次数（改 VERSION 常量即可）。
+ *
+ * 抓坏猫 v0.6
  * v0.6：结算插图（胜利 / 失败 / 无尽收队三张图，缺文件自动隐藏并退回纯文字结算）、
  *       难度曲线调整——传送带整体提速 ~15%，合成所需数量随关卡从 3 只升到 4、5 只，
  *       第 10 关坏猫大王目标数升到 4 只；新增判负条件——漏网坏猫、误点乖猫达到
@@ -28,6 +34,10 @@
  */
 (function () {
   'use strict';
+
+  /* ================= 版本 ================= */
+  /* 每次发版只改这里：name 版本号、build 第几次更新、date 日期 */
+  var VERSION = { name: 'v0.7', build: 7, date: '2026-10-20' };
 
   /* ================= 素材表 ================= */
   /* 改图只改这里。路径按仓库里的实际文件名一字不差地写。 */
@@ -92,7 +102,7 @@
     loadTimeout: 3.5,                // 素材加载最长等待（秒），超时就先开场
 
     // ---- v0.4：劫狱 ----
-    raidEvery: 5,                    // 每漏网 5 只坏猫触发一次
+    raidEvery: 5,                    // 默认每漏网 5 只触发一次（v0.7 起各关可单独覆盖）
     raidMin: 1.4,                    // 警报窗口（秒）
     raidMax: 2.0,
     raidPenalty: 20,
@@ -111,13 +121,14 @@
 
     // ---- v0.5 ----
     bonusTime: 10,                   // 目标 2 只以上的关卡与无尽：每逮捕一只（最后一只除外）加时
-    progressKey: 'zhuahuaimao.progress.v1',
+    progressKey: 'zhuahuaimao.progress.v2',        // v0.7：存档升到 v2
+    progressKeyV1: 'zhuahuaimao.progress.v1',      // v0.7：旧存档，仅用于迁移
     // 警衔：按历史最高累计警务分算；maxLevel 是该警衔能进的最高关卡
-    // v0.5.1：分数线 3000/9000 → 6000/15000
+    // v0.7：教程少了一关，分数线略降 6000/15000 → 5000/12000
     ranks: [
       { name: '见习鱼干保护者', need: 0,     maxLevel: 3 },
-      { name: '正式鱼干守护官', need: 6000,  maxLevel: 6 },
-      { name: '首席鱼干守护长', need: 15000, maxLevel: 999 }
+      { name: '正式鱼干守护官', need: 5000,  maxLevel: 6 },
+      { name: '首席鱼干守护长', need: 12000, maxLevel: 999 }
     ],
 
     // ---- v0.5.1：音频 ----
@@ -135,9 +146,9 @@
 
   var LEVEL_BASE = {
     colors: 2,
-    spawnEvery: 1.05,
+    spawnEvery: 1.0,      // v0.7：1.05 → 1.0
     spawnJitter: 0.35,
-    crossTime: 4.6,       // 原 5.4，v0.6 整体提速 ~15%
+    crossTime: 4.0,       // v0.7：4.6 → 4.0
     good: false,         // 乖猫
     goodRate: 0.2,
     miss: false,         // 扑空与警觉度
@@ -151,6 +162,13 @@
     mergeNeed: 3,         // 合成要凑几只
     escapeFailAt: 10,     // 漏网达到这个数就判负；0 = 不启用
     goodHitFailAt: 0,     // 误点乖猫达到这个数就判负；0 = 不启用
+    raidEvery: 5,         // v0.7：每漏网几只触发劫狱
+    raidMul: 1,           // v0.7：警报窗口倍数，<1 更短
+    breakout: false,      // v0.7：笼里的猫会自己越狱
+    breakEvery: 14,       // v0.7：平均多少秒挑一只开始晃
+    breakJitter: 3,
+    breakWarn: 1.2,       // v0.7：晃动多久后真跑
+    penaltyBreak: 15,     // v0.7：越狱扣分
     endless: false,
     title: ''
   };
@@ -166,7 +184,7 @@
     var d = mix(LEVEL_BASE, o);
     d.no = no;
     d.target = target;
-    d.duration = target === 1 ? 90 : (target === 2 ? 150 : 180);
+    d.duration = target === 1 ? 90 : (target === 2 ? 150 : (target >= 5 ? 210 : 180));
     d.items = d.drops.length > 0;
     d.bonusTime = target >= 2 ? CFG.bonusTime : 0;
     return d;
@@ -174,25 +192,37 @@
 
   var ALL_ITEMS = ['catnip', 'net', 'slot'];
   var FULL = { good: true, miss: true, raid: true };
-  var TIER2 = mix(FULL, { goodRate: 0.22, penaltyGood: 20, penaltyRaid: 30, missMul: 1.15, escapeFailAt: 8, goodHitFailAt: 3 });          // 第 4–6 关
-  var TIER3 = mix(FULL, { goodRate: 0.26, penaltyGood: 25, penaltyRaid: 40, missMul: 1.3,
-                          pityAfter: 3, crossTime: 3.9, spawnEvery: 0.95,
-                          mergeNeed: 4, escapeFailAt: 6, goodHitFailAt: 2 });                              // 第 7–9 关
+  // 第 3–5 关
+  var TIER2 = mix(FULL, { goodRate: 0.22, penaltyGood: 20, penaltyRaid: 30, missMul: 1.2,
+                          crossTime: 3.7, spawnEvery: 0.9, escapeFailAt: 8, goodHitFailAt: 3 });
+  // 第 6–8 关
+  var TIER3 = mix(FULL, { goodRate: 0.26, penaltyGood: 25, penaltyRaid: 40, missMul: 1.35,
+                          pityAfter: 3, crossTime: 3.3, spawnEvery: 0.82, mergeNeed: 4,
+                          raidEvery: 4, breakout: true, breakEvery: 16,
+                          escapeFailAt: 6, goodHitFailAt: 2 });
+  // 第 9 关
   var TIER4 = mix(FULL, { goodRate: 0.3, penaltyGood: 35, penaltyRaid: 50, missMul: 1.5,
-                          pityAfter: 3, crossTime: 3.6, spawnEvery: 0.9, drops: ALL_ITEMS, crate: true,
-                          mergeNeed: 5, escapeFailAt: 5, goodHitFailAt: 1 }); // 第 10 关及无尽
+                          pityAfter: 3, crossTime: 3.0, spawnEvery: 0.75, drops: ALL_ITEMS, crate: true,
+                          mergeNeed: 5, raidEvery: 3, breakout: true, breakEvery: 12, breakWarn: 1.1,
+                          penaltyBreak: 25, escapeFailAt: 6, goodHitFailAt: 2 });
+  // 第 10 关及无尽
+  var TIER5 = mix(TIER4, { goodRate: 0.32, penaltyGood: 45, penaltyRaid: 60, missMul: 1.7,
+                           pityAfter: 4, crossTime: 2.7, spawnEvery: 0.68, raidMul: 0.8,
+                           breakEvery: 9, breakWarn: 1.0, penaltyBreak: 35,
+                           escapeFailAt: 5, goodHitFailAt: 1 });
 
   var LEVELS = [
-    lv(1, 1, { title: '教学：只管抓猫' }),
-    lv(2, 1, { title: '加入乖猫', good: true }),
-    lv(3, 1, { title: '加入扑空与警觉度', good: true, miss: true }),
-    lv(4, 2, mix(TIER2, { title: '加入劫狱与别捣蛋' })),
-    lv(5, 2, mix(TIER2, { title: '传送带加速', crossTime: 4.3 })),
-    lv(6, 2, mix(TIER2, { title: '合成会掉落猫薄荷', crossTime: 4.3, drops: ['catnip'] })),
-    lv(7, 2, mix(TIER3, { title: '加入大网', drops: ['catnip', 'net'] })),
-    lv(8, 3, mix(TIER3, { title: '加入加格', drops: ALL_ITEMS })),
-    lv(9, 3, mix(TIER3, { title: '传送带出补给箱', drops: ALL_ITEMS, crate: true })),
-    lv(10, 4, mix(TIER4, { title: 'Boss 关：全机制，难度拉满' }))
+    lv(1, 1, { title: '教学一：抓猫与乖猫', good: true }),
+    lv(2, 1, { title: '教学二：扑空与警觉度', good: true, miss: true }),
+    lv(3, 2, mix(TIER2, { title: '加入劫狱与别捣蛋' })),
+    lv(4, 2, mix(TIER2, { title: '传送带加速，劫狱更勤', crossTime: 3.4, spawnEvery: 0.85, raidEvery: 4 })),
+    lv(5, 2, mix(TIER2, { title: '笼里的猫会自己越狱', crossTime: 3.4, spawnEvery: 0.85, raidEvery: 4,
+                          breakout: true, breakEvery: 18, drops: ['catnip'] })),
+    lv(6, 2, mix(TIER3, { title: '加入大网', drops: ['catnip', 'net'] })),
+    lv(7, 3, mix(TIER3, { title: '加入加格', drops: ALL_ITEMS })),
+    lv(8, 3, mix(TIER3, { title: '传送带出补给箱', drops: ALL_ITEMS, crate: true })),
+    lv(9, 4, mix(TIER4, { title: 'Boss 关：全机制' })),
+    lv(10, 5, mix(TIER5, { title: '终极 Boss：难度拉满' }))
   ];
 
   // 无尽值班：从第 10 关的难度起步，每逮捕一只再加一档；不启用漏网 / 误点判负
@@ -204,10 +234,12 @@
 
   function applyEndless() {
     var t = G.captured, d = G.level;
-    d.crossTime = Math.max(2.6, ENDLESS.crossTime - 0.1 * t);
+    d.crossTime = Math.max(2.2, ENDLESS.crossTime - 0.08 * t);
     d.goodRate = Math.min(0.4, ENDLESS.goodRate + 0.01 * t);
     d.missMul = Math.min(2.0, ENDLESS.missMul + 0.03 * t);
-    d.spawnEvery = Math.max(0.65, ENDLESS.spawnEvery - 0.02 * t);
+    d.spawnEvery = Math.max(0.5, ENDLESS.spawnEvery - 0.02 * t);
+    d.breakEvery = Math.max(6, ENDLESS.breakEvery - 0.5 * t);
+    d.penaltyBreak = Math.min(60, ENDLESS.penaltyBreak + 2 * t);
     d.penaltyGood = Math.min(50, ENDLESS.penaltyGood + 2 * t);
     d.penaltyRaid = Math.min(70, ENDLESS.penaltyRaid + 3 * t);
   }
@@ -291,6 +323,7 @@
   var elRankStart = $('rankStart');
   var elBtnMusic = $('btnMusic');
   var elBtnSfx = $('btnSfx');
+  var elVer = $('verText');          // v0.7：版本号；index.html 没加这一行也不会报错
 
   // 道具栏：三个道具 + 别捣蛋
   var TOOL = {
@@ -389,14 +422,34 @@
     return true;
   }
 
-  /* ================= 进度存档、警衔与解锁（v0.5） ================= */
+  /* ================= 进度存档、警衔与解锁（v0.5 / v0.7 迁移） ================= */
+
+  // v0.7：旧存档（v1）迁移。教程由 3 关并为 2 关，其余关卡整体前移一位。
+  function migrateV1(o) {
+    var c = parseInt(o.cleared, 10) || 0;
+    var m = { cleared: Math.max(0, c - 1), best: {}, peak: o.peak, endless: o.endless };
+    var ob = (o.best && typeof o.best === 'object') ? o.best : {};
+    for (var k in ob) {
+      if (!ob.hasOwnProperty(k)) continue;
+      var n = parseInt(k, 10);
+      if (n >= 2) m.best[n - 1] = ob[k];
+    }
+    return m;
+  }
 
   function loadProgress() {
-    var o = null;
+    var o = null, migrated = false, v;
     try {
-      var v = window.localStorage.getItem(CFG.progressKey);
+      v = window.localStorage.getItem(CFG.progressKey);
       o = v ? JSON.parse(v) : null;
     } catch (e) { o = null; }
+    if (!o || typeof o !== 'object') {
+      try {
+        v = window.localStorage.getItem(CFG.progressKeyV1);
+        var o1 = v ? JSON.parse(v) : null;
+        if (o1 && typeof o1 === 'object') { o = migrateV1(o1); migrated = true; }
+      } catch (e) {}
+    }
     if (!o || typeof o !== 'object') o = {};
     var p = {
       cleared: parseInt(o.cleared, 10) || 0,                 // 已通关的最高关卡
@@ -408,6 +461,7 @@
       p.endless.caps = parseInt(o.endless.caps, 10) || 0;
       p.endless.score = parseInt(o.endless.score, 10) || 0;
     }
+    if (migrated) p.migrated = true;
     return p;
   }
 
@@ -421,6 +475,9 @@
     if (DEV_UNLOCK) return;
     try { window.localStorage.setItem(CFG.progressKey, JSON.stringify(P)); } catch (e) {}
   }
+
+  // v0.7：迁移完成后立刻写入 v2（v1 原样保留作备份）
+  if (P.migrated) { delete P.migrated; saveProgress(); }
 
   function rankIndex(peak) {
     var r = 0;
@@ -924,7 +981,9 @@
     shrink: false,           // 加格到期但那格还有猫，等玩家腾位
     crateTimer: 0,
     nextCrate: CFG.crateFirst,
-    netFx: null
+    netFx: null,
+    breakTimer: 0,           // v0.7：距下次越狱的倒计时
+    broke: 0                 // v0.7：本局自己越狱的猫数
   };
 
   function addScore(n) {
@@ -955,6 +1014,8 @@
     G.crateTimer = 0;
     G.nextCrate = CFG.crateFirst;
     G.netFx = null;
+    G.breakTimer = 0;
+    G.broke = 0;
     layoutCells();
   }
 
@@ -1007,13 +1068,15 @@
     G.missTotal = 0;
     G.released = 0;
     G.failReason = '';
+    G.broke = 0;
+    G.breakTimer = def.breakout ? def.breakEvery : 0;
 
     showLevelHud(def);
     applyBar(def);
     syncHud();
     syncTools();
     drawIcons();
-    Sound.startMusic(def.endless || def.no === 10 ? 'bgmBoss' : 'bgm');
+    Sound.startMusic(def.endless || def.no >= 9 ? 'bgmBoss' : 'bgm');
     toast(def.endless ? '无尽值班：抓得越多越难' : '第 ' + def.no + ' 号：' + def.title, 'good', 2.4);
   }
 
@@ -1045,7 +1108,7 @@
     }
     elEscape.textContent = G.level.escapeFailAt ? (G.escaped + '/' + G.level.escapeFailAt) : String(G.escaped);
 
-    var leakTxt = G.level.raid ? G.leak + '/' + CFG.raidEvery : '-';
+    var leakTxt = G.level.raid ? G.leak + '/' + G.level.raidEvery : '-';
     if (leakTxt !== lastLeakShown) {
       elLeak.textContent = leakTxt;
       lastLeakShown = leakTxt;
@@ -1642,7 +1705,7 @@
 
   // 一只猫入笼：占格、起飞、加分。delay 用于大网错开多只的起飞时间。
   function putInCage(cat, cy, slot, delay) {
-    G.slots[slot] = { sp: cat.sp, lv: cat.lv, arriving: true, pop: 0, capture: 0 };
+    G.slots[slot] = { sp: cat.sp, lv: cat.lv, arriving: true, pop: 0, capture: 0, warn: 0 };
     var to = slotCenter(slot);
     G.flyers.push({
       sp: cat.sp, lv: cat.lv, slot: slot,
@@ -1857,6 +1920,16 @@
       G.sel = -1;
       return false;
     }
+    // v0.7：点正在抖动的猫 = 安抚，取消越狱
+    var sw = G.slots[idx];
+    if (sw && sw.warn > 0 && G.sel !== idx && slotMovable(idx)) {
+      sw.warn = 0;
+      G.breakTimer = Math.max(G.breakTimer, 2);
+      toast('安抚住了', 'good', 0.8);
+      AudioFX.block();
+      buzz(14);
+      return true;
+    }
     if (firstEmptySlot() >= 0) return true;
     if (!slotMovable(idx)) return true;
     if (G.sel === idx) {
@@ -1875,14 +1948,14 @@
     if (!G.level.raid) return;
     if (G.alarm > 0) return;
     G.leak++;
-    if (G.leak >= CFG.raidEvery) {
+    if (G.leak >= G.level.raidEvery) {
       G.leak = 0;
       if (movableCount() > 0) startAlarm();   // 笼子里没猫可劫就直接清零
     }
   }
 
   function startAlarm() {
-    G.alarmDur = rand(CFG.raidMin, CFG.raidMax);
+    G.alarmDur = rand(CFG.raidMin, CFG.raidMax) * G.level.raidMul;
     G.alarm = G.alarmDur;
     G.alarmBeep = 0;
     G.alarmFile = Sound.sfx('alarm');          // 有警报 MP3 就放文件，没有就用合成的滴滴声
@@ -1908,6 +1981,51 @@
     floatText(p.x, p.y - L.cellH * 0.6, '劫狱！−' + G.level.penaltyRaid, COLOR.stamp, 17);
     toast('被劫走一只！', 'warn');
     G.shake = 0.3;
+    AudioFX.breakout();
+    buzz([30, 30, 60]);
+  }
+
+  /* ---------- v0.7：猫自己越狱 ---------- */
+
+  function tickBreakout(dt) {
+    var def = G.level, i, sl;
+    for (i = 0; i < G.slots.length; i++) {
+      sl = G.slots[i];
+      if (sl && sl.warn > 0) {
+        if (!slotMovable(i)) { sl.warn = 0; continue; }
+        sl.warn -= dt;
+        if (sl.warn <= 0) { sl.warn = 0; breakOut(i); }
+      }
+    }
+    if (G.alarm > 0) return;                 // 警报期间不叠加
+    G.breakTimer -= dt;
+    if (G.breakTimer <= 0) {
+      G.breakTimer = def.breakEvery + rand(-def.breakJitter, def.breakJitter);
+      var c = [];
+      for (i = 0; i < G.slots.length; i++) {
+        if (slotMovable(i) && !(G.slots[i].warn > 0)) c.push(i);
+      }
+      if (c.length) {
+        G.slots[c[randInt(c.length)]].warn = def.breakWarn;
+        AudioFX.beep();
+        buzz(20);
+        hintOnce('break', '笼里有猫在抖：快点它安抚，不然会越狱', 'warn');
+      }
+    }
+  }
+
+  function breakOut(i) {
+    var sl = G.slots[i];
+    if (!sl) return;
+    var p = slotCenter(i);
+    var dir = p.x < L.w / 2 ? -1 : 1;
+    G.slots[i] = null;
+    G.broke++;
+    launchRunner(sl, p, dir, 0);
+    addScore(-G.level.penaltyBreak);
+    floatText(p.x, p.y - L.cellH * 0.6, '越狱！−' + G.level.penaltyBreak, COLOR.stamp, 16);
+    toast('有猫自己越狱了！', 'warn');
+    G.shake = 0.2;
     AudioFX.breakout();
     buzz([30, 30, 60]);
   }
@@ -2133,7 +2251,7 @@
 
     var newLv = lv + 1;
     G.slots[target] = {
-      sp: sp, lv: newLv, arriving: false, pop: 1,
+      sp: sp, lv: newLv, arriving: false, pop: 1, warn: 0,
       capture: newLv === CFG.maxLevel ? CFG.captureHold : 0
     };
 
@@ -2308,6 +2426,8 @@
 
     // v0.4：猫薄荷、加格、警报倒计时（只在 playing 时走）
     if (G.state === 'playing') {
+      if (G.level.breakout) tickBreakout(dt);     // v0.7：猫自己越狱
+
       if (G.freeze > 0) G.freeze = Math.max(0, G.freeze - dt);
 
       if (G.slotCount > CFG.cageSlots) {
@@ -2696,7 +2816,8 @@
         var p = slotCenter(i);
         var pop = s.pop > 0 ? 1 + Math.sin(s.pop * Math.PI) * 0.28 : 1;
         var flash = s.capture > 0 ? (Math.sin(s.capture * 36) * 0.5 + 0.5) : 0;
-        drawCat(ctx, p.x, p.y + L.cageCat * 0.06, L.cageCat * pop, s.sp, s.lv, 0);
+        var jit = s.warn > 0 ? Math.sin(G.clock * 50) * 3 : 0;      // v0.7：要越狱的猫在抖
+        drawCat(ctx, p.x + jit, p.y + L.cageCat * 0.06, L.cageCat * pop, s.sp, s.lv, 0);
         if (flash > 0) {
           ctx.save();
           ctx.globalAlpha = flash * 0.5;
@@ -2721,6 +2842,21 @@
           ctx.lineTo(bx, y + L.cellH - 3);
           ctx.stroke();
         }
+        ctx.restore();
+      }
+
+      // v0.7：要越狱的格子红框闪烁 + 感叹号
+      if (s && s.warn > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.5 + 0.5 * alarmPulse;
+        ctx.strokeStyle = COLOR.stamp;
+        ctx.lineWidth = 2.5;
+        roundRect(ctx, x + 1, y + 1, L.cellW - 2, L.cellH - 2, 3);
+        ctx.stroke();
+        ctx.fillStyle = COLOR.stamp;
+        ctx.font = '800 13px -apple-system, "PingFang SC", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('!', x + L.cellW - 8, y + 13);
         ctx.restore();
       }
 
@@ -2932,7 +3068,7 @@
     addTally('抓捕（每只 +' + CFG.scoreCatch + '）', '+' + G.sc.catch);
     addTally('合成（含连锁）', '+' + G.sc.merge);
     addTally('逮捕坏猫大王', '+' + G.sc.capture);
-    if (G.sc.pen > 0) addTally('扣分（误点、劫狱）', '−' + G.sc.pen);
+    if (G.sc.pen > 0) addTally('扣分（误点、劫狱、越狱）', '−' + G.sc.pen);
     if (win) addTally('剩余时间奖励', '+' + timeBonus + (timeBonus >= CFG.timeBonusCap ? '（已封顶）' : ''));
     addTally('总分', String(total), true);
     addTally('累计警务分', nextCareer + '（' + diffText + '）');
@@ -2940,6 +3076,7 @@
     addTally('逮捕数', isFinite(def.target) ? G.captured + ' / ' + def.target : String(G.captured));
     addTally('漏网坏猫', String(G.escaped));
     if (def.raid) addTally('被劫走', G.raided + ' 只');
+    if (def.breakout) addTally('自己越狱', G.broke + ' 只');
     if (def.good) addTally('误点乖猫', G.goodHit + ' 只');
     if (endless) addTally('无尽最高逮捕', P.endless.caps + ' 只');
 
@@ -3247,6 +3384,7 @@
   elCareerStart.textContent = String(loadCareer());
   showLevelHud(LEVELS[0]);
   refreshRankUI();
+  if (elVer) elVer.textContent = VERSION.name + ' · 第 ' + VERSION.build + ' 次更新 · ' + VERSION.date;
   G.time = LEVELS[0].duration;
   G.timeTotal = LEVELS[0].duration;
   syncHud();

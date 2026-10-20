@@ -782,3 +782,5 @@ body {
 .hud-snd:active { background: rgba(242,177,52,.18); }
 .hud-snd.off { border-color: var(--steel-2); color: #566472; text-decoration: line-through; }
 .tally { max-height: 38vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+.ver { margin: 10px 0 0; font-size: 11px; letter-spacing: .08em; color: #566472; }
